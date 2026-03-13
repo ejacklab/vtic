@@ -23,6 +23,7 @@ For any **non-trivial task** (multi-step work, debugging, coding, research, clea
 
 ### Default operating loop
 
+- Read `skills/self-harness/SKILL.md` as the router for structured work
 - Read `skills/scrum-master-lite/SKILL.md`
 - Use `skills/planning/SKILL.md` before implementation
 - Track multi-step work in `state.md` and `plans/`

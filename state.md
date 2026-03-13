@@ -11,3 +11,4 @@
 
 ## Done
 - bootstrap lightweight self-harness for cclow
+- create `skills/self-harness/` as the router skill for using and evolving the harness
