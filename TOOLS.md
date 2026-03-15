@@ -4,13 +4,18 @@ Skills define _how_ tools work. This file is for _your_ specifics — the stuff 
 
 ## Global Skills Location
 
-**All shared skills go here:** `/home/smoke01/.openclaw/global/skills/`
+**Path:** `/home/smoke01/.openclaw/skills/`
+
+This is THE global skills directory for all agents. Install shared skills here.
 
 Current global skills:
 - `python-llm-tools` - Python best practices for LLM tool calling
 - `ts-llm-tools` - TypeScript best practices for LLM tool calling
+- `harness-workflow` - Multi-step task workflow
 
 When creating skills for all agents, install to global location, not per-workspace.
+
+**Note:** Heartbeat audits check this directory for new/updated skills every hour.
 
 ## Local Paths
 
