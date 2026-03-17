@@ -1,15 +1,15 @@
 # vtic — Build Plan
 
-**Focus:** Ship a working, maintainable, fast ticket system. Nothing more.
+**Focus:** A blazing fast ticket API. Zvec-speed response times. Every feature is an endpoint.
 
 ---
 
 ## Phase 1: Core (T1–T4)
 
-> The thing works end-to-end. CLI + BM25 search. No API, no embeddings, no extras.
+> CLI + Markdown store + Zvec index. The engine underneath.
 
 ### T1 — Scaffolding
-- [ ] `pyproject.toml` (zvec, typer, pydantic)
+- [ ] `pyproject.toml` (zvec, fastapi, uvicorn, typer, pydantic)
 - [ ] Package structure `src/vtic/`
 - [ ] `.gitignore`, example `vtic.toml`
 - [ ] `pip install -e .` works
@@ -18,105 +18,149 @@
 - [ ] Ticket → markdown file write (4-level path)
 - [ ] Markdown file → ticket read (frontmatter + body)
 - [ ] Update, delete, list, rebuild from disk
+- [ ] Async I/O (aiofiles)
 - [ ] Tests
 
 ### T3 — Zvec Index
-- [ ] Schema + BM25 sparse vector + inverted indexes
+- [ ] Schema: scalar fields + BM25 sparse vector + inverted indexes
 - [ ] Insert, upsert, update, delete, fetch
 - [ ] Rebuild from markdown files
+- [ ] `optimize()` after bulk ops
 - [ ] Tests
 
-### T4 — CLI + BM25 Search
-- [ ] `vtic init`, `vtic create`, `vtic get`, `vtic update`, `vtic delete`, `vtic list`
-- [ ] `vtic search <query>` — BM25 keyword search
-- [ ] Filter flags: `--severity`, `--status`, `--repo`, `--category`
-- [ ] `--json` output flag
+### T4 — CLI (minimal, for ops)
+- [ ] `vtic init`, `vtic serve`
+- [ ] Basic CRUD for manual testing: `vtic create`, `vtic get`, `vtic search`
 - [ ] Tests
-
-**Checkpoint:** MVP works. Can create tickets, search them, manage lifecycle.
 
 ---
 
-## Phase 2: API (T5–T6)
+## Phase 2: The API (T5–T9)
 
-> HTTP API so any agent/tool/curl can use it.
+> This is the product. Every feature ships as an endpoint first.
 
-### T5 — FastAPI Server
-- [ ] `POST /tickets`, `GET /tickets/:id`, `PATCH /tickets/:id`, `DELETE /tickets/:id`
-- [ ] `GET /tickets` with query params
-- [ ] Input validation, error responses
+### T5 — Ticket CRUD
+- [ ] `POST /tickets` — create (writes markdown + indexes to Zvec)
+- [ ] `GET /tickets/:id` — read
+- [ ] `PATCH /tickets/:id` — partial update (syncs both)
+- [ ] `DELETE /tickets/:id` — delete (file + index)
+- [ ] `GET /tickets` — list with filters (`?repo=X&severity=critical&status=open`)
+- [ ] Pydantic models for all request/response
 - [ ] Tests
 
 ### T6 — Search API
-- [ ] `POST /search` — `{ query, filters, topk }`
-- [ ] `GET /health` — index stats
+- [ ] `POST /search` — BM25 keyword search with filters
+  ```json
+  { "query": "CORS wildcard", "filters": { "severity": "critical" }, "topk": 10 }
+  ```
+- [ ] `GET /search?q=CORS&severity=critical` — simple query string
+- [ ] Response: ranked results with scores
 - [ ] Tests
 
-**Checkpoint:** API works. Agents can integrate.
+### T7 — Batch Operations
+- [ ] `POST /tickets/batch` — bulk create (upsert semantics)
+- [ ] `PATCH /tickets/batch` — bulk update by filter
+  ```json
+  { "filter": { "severity": "critical", "status": "open" }, "set": { "status": "in_progress" } }
+  ```
+- [ ] `DELETE /tickets/batch` — bulk delete by filter
+- [ ] All batch ops: single Zvec transaction + parallel file I/O
+- [ ] Tests
+
+### T8 — Semantic Search (RAG-ready)
+- [ ] Pluggable `EmbeddingProvider` interface
+- [ ] OpenAI provider (`text-embedding-3-small`)
+- [ ] Local provider (`sentence-transformers`)
+- [ ] Dense vector alongside BM25 on every ticket create/update
+- [ ] `POST /search` gains `"semantic": true` option
+- [ ] Hybrid search via `WeightedReRanker` (BM25 + dense in one query)
+- [ ] Auto-fallback: no provider configured → BM25 only, no errors
+- [ ] Tests
+
+### T9 — Similar Tickets (RAG foundation)
+- [ ] `POST /tickets/:id/similar` — find tickets semantically similar to a given ticket
+  ```json
+  { "topk": 5, "filters": { "status": "fixed" } }
+  ```
+- [ ] Use case: agent finds a bug → "show me similar resolved tickets" → auto-suggest fix
+- [ ] This is the RAG entry point — just needs the query API under the hood
+- [ ] Tests
+
+**Checkpoint:** Full API works. Fast CRUD, fast search, batch ops, semantic similarity.
 
 ---
 
-## Phase 3: Semantic Search (T7–T8)
+## Phase 3: Performance & DX (T10–T11)
 
-> Optional upgrade. Pluggable embedding providers.
+> Make it unreasonably fast.
 
-### T7 — Embedding Abstraction
-- [ ] `EmbeddingProvider` interface
-- [ ] OpenAI provider
-- [ ] Local provider (sentence-transformers)
-- [ ] Auto-detect from config, skip if not configured
-- [ ] Tests
+### T10 — Performance
+- [ ] Async all the way (async file I/O, async Zvec calls where possible)
+- [ ] Response time benchmarks: target < 10ms for search, < 5ms for CRUD
+- [ ] Batch ops: process 1000 tickets in < 1s
+- [ ] Connection pooling for embedding providers
+- [ ] Zvec `optimize()` scheduling after bulk writes
+- [ ] Memory-efficient streaming for large result sets
+- [ ] Benchmark suite
 
-### T8 — Hybrid Search
-- [ ] Dense vector insert alongside BM25
-- [ ] `WeightedReRanker` for BM25 + dense
-- [ ] `--semantic` flag on CLI, `semantic: true` on API
-- [ ] Tests
-
-**Checkpoint:** Full hybrid search works. Zero-config BM25 + optional semantic.
+### T11 — API Polish
+- [ ] `GET /health` — index stats, ticket count, uptime, version
+- [ ] `GET /stats` — tickets by severity, by status, by repo
+- [ ] Pagination (`?page=1&limit=50`) on all list endpoints
+- [ ] Consistent error format (`{ "error": { "code": "...", "message": "..." } }`)
+- [ ] OpenAPI schema auto-generated by FastAPI
+- [ ] Request/response examples in OpenAPI
+- [ ] `POST /reindex` — rebuild Zvec from markdown files
 
 ---
 
-## Phase 4: Ship (T9–T10)
+## Phase 4: Ship (T12–T13)
 
-> Tests, CI, publish.
-
-### T9 — Tests & CI
-- [ ] Unit tests (store, index, search)
-- [ ] Integration tests (CLI, API)
+### T12 — Tests & CI
+- [ ] Unit tests (store, index, search, embedding)
+- [ ] Integration tests (all API endpoints)
+- [ ] Performance tests (benchmark suite)
 - [ ] GitHub Actions (lint, test, Python 3.10–3.12)
-- [ ] Coverage report
+- [ ] Coverage ≥ 80%
 
-### T10 — Publish
+### T13 — Publish
 - [ ] Build wheels
 - [ ] Test `pip install vtic` from wheel
 - [ ] Publish to PyPI
 
 ---
 
-## Priorities
+## Priority Path
 
 ```
-T1 → T2 → T3 → T4 → T5 → T6 → T9 → T10 → T7 → T8
-         │              │              │
-         └──────────────┘──────────────┘
-          MVP: works     Ship: tested   Semantic: optional
+T1 → T2 → T3 → T4 → T5 → T6 → T8 → T7 → T9 → T10 → T11 → T12 → T13
+                       │         │         │         │          │
+                       └── CRUD ──┘── BM25 ──┘── RAG ───┘── Ship ──┘
 ```
 
-**MVP = T1–T4.** Everything else follows.
+**API is the product.** CLI exists for ops, not as the primary interface.
 
 ---
 
-## What We're NOT Building (Yet)
+## What We're NOT Building (v0.1)
 
 - ❌ Web UI
-- ❌ RAG / auto-suggestions
 - ❌ Email-to-ticket
 - ❌ Plugin system
 - ❌ Webhooks
+- ❌ Auth/rate limiting (single-user/local-first)
 - ❌ Status workflows
 - ❌ Ticket linking
 - ❌ Export/import
-- ❌ Rate limiting / auth
 
-These are all valid features. They're not v0.1.
+## Performance Targets
+
+| Operation | Target | Zvec Contribution |
+|-----------|--------|-------------------|
+| Create ticket | < 20ms | BM25 index write |
+| Get ticket | < 5ms | Direct file read |
+| Search (BM25) | < 10ms | 8500+ QPS index |
+| Search (hybrid) | < 50ms | BM25 + dense + rerank |
+| Batch create (100) | < 500ms | Bulk insert + async file I/O |
+| Similar tickets | < 15ms | Vector query on single doc |
+| Reindex | < 5s for 10K | Full scan + bulk insert |
