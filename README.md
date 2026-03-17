@@ -252,6 +252,10 @@ Just use `vtic` as-is. Keyword search works out of the box.
 - **Zvec index** is the search layer — rebuilt from markdown files if corrupted
 - **API** hides all implementation details — callers never see Zvec or embeddings
 
+## API Design
+
+When designing or extending the vtic REST API, always refer to the [OpenAPI Specification](https://swagger.io/specification/) first. All endpoints must follow OpenAPI 3.1 conventions.
+
 ## Built With
 
 - [Zvec](https://github.com/alibaba/zvec) — In-process vector database by Alibaba (Proxima engine)
