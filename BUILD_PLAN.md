@@ -1,145 +1,122 @@
-# vtic — Build Plan & Tickets
+# vtic — Build Plan
 
-**Project:** https://github.com/661818yijack/vtic  
-**Created:** 2026-03-17  
-**Status:** Planning → Building
+**Focus:** Ship a working, maintainable, fast ticket system. Nothing more.
 
 ---
 
-## Phase 1: Foundation
+## Phase 1: Core (T1–T4)
 
-### T1 — Project scaffolding
-- [ ] Create `pyproject.toml` with dependencies (zvec, fastapi, typer, pydantic)
-- [ ] Create package structure (`src/vtic/`)
-- [ ] Add `.gitignore`, `vtic.toml` example config
-- [ ] Verify `pip install -e .` works
+> The thing works end-to-end. CLI + BM25 search. No API, no embeddings, no extras.
 
-### T2 — Markdown ticket store
-- [ ] Implement `TicketStore` class — CRUD for markdown files
-- [ ] 4-level path: `tickets/{owner}/{repo}/{category}/{id}.md`
-- [ ] Frontmatter parsing/writing (severity, status, category, repo, file, dates)
-- [ ] Generate ticket content from structured data
-- [ ] Parse ticket content back to structured data
-- [ ] Rebuild index from markdown files (scan disk)
+### T1 — Scaffolding
+- [ ] `pyproject.toml` (zvec, typer, pydantic)
+- [ ] Package structure `src/vtic/`
+- [ ] `.gitignore`, example `vtic.toml`
+- [ ] `pip install -e .` works
 
-### T3 — Zvec index
-- [ ] Implement `TicketIndex` class — wraps Zvec
-- [ ] Schema: scalar fields (repo, severity, status, category, file, title, created_at) + BM25 sparse vector
-- [ ] `create_and_open` on init, `open` on subsequent runs
-- [ ] Inverted indexes on severity, status, repo, category
-- [ ] Insert, upsert, update, delete, fetch, delete_by_filter
-- [ ] `optimize()` after bulk inserts
+### T2 — Markdown Store
+- [ ] Ticket → markdown file write (4-level path)
+- [ ] Markdown file → ticket read (frontmatter + body)
+- [ ] Update, delete, list, rebuild from disk
+- [ ] Tests
 
----
+### T3 — Zvec Index
+- [ ] Schema + BM25 sparse vector + inverted indexes
+- [ ] Insert, upsert, update, delete, fetch
+- [ ] Rebuild from markdown files
+- [ ] Tests
 
-## Phase 2: Search
-
-### T4 — BM25 search (keyword, zero config)
-- [ ] `BM25EmbeddingFunction` integration for query encoding
-- [ ] Sparse vector insert on ticket create/update
-- [ ] Keyword search via `collection.query()` with sparse vector
-- [ ] Combined filter + keyword search (e.g. `severity = "critical" AND bm25 match`)
-
-### T5 — Semantic search (dense embeddings, optional)
-- [ ] Abstract `EmbeddingProvider` interface
-- [ ] OpenAI provider (`text-embedding-3-small`, 1536 dim)
-- [ ] Local provider (`sentence-transformers`, `all-MiniLM-L6-v2`, 384 dim)
-- [ ] Config-driven: auto-detect provider from `vtic.toml`
-- [ ] Skip entirely if no provider configured
-- [ ] Dense vector insert on ticket create/update (if provider exists)
-
-### T6 — Hybrid search
-- [ ] Combine BM25 + dense vectors in single query
-- [ ] `WeightedReRanker` with configurable weights
-- [ ] Unified `POST /search` endpoint and `vtic search` CLI
-- [ ] Filter syntax: `severity = "critical" AND status = "open"`
-
----
-
-## Phase 3: CLI
-
-### T7 — CLI core commands
-- [ ] `vtic init <dir>` — create storage + index
-- [ ] `vtic create --repo --category --severity --title --description --file --fix` — create ticket
-- [ ] `vtic get <id>` — show ticket details
-- [ ] `vtic update <id> --status --severity --description` — update fields
-- [ ] `vtic delete <id>` — remove ticket (file + index)
-- [ ] `vtic list [--repo] [--severity] [--status] [--category]` — filter & list
-
-### T8 — CLI search
+### T4 — CLI + BM25 Search
+- [ ] `vtic init`, `vtic create`, `vtic get`, `vtic update`, `vtic delete`, `vtic list`
 - [ ] `vtic search <query>` — BM25 keyword search
-- [ ] `vtic search <query> --semantic` — enable dense vector search
-- [ ] `vtic search <query> --severity X --status Y` — combined filters
-- [ ] Pretty-print results (table or JSON with `--json` flag)
+- [ ] Filter flags: `--severity`, `--status`, `--repo`, `--category`
+- [ ] `--json` output flag
+- [ ] Tests
+
+**Checkpoint:** MVP works. Can create tickets, search them, manage lifecycle.
 
 ---
 
-## Phase 4: API Server
+## Phase 2: API (T5–T6)
 
-### T9 — FastAPI server
-- [ ] `vtic serve --host --port`
-- [ ] `POST /tickets` — create
-- [ ] `GET /tickets/:id` — read
-- [ ] `PATCH /tickets/:id` — update
-- [ ] `DELETE /tickets/:id` — delete
-- [ ] `GET /tickets?repo=X&severity=Y&status=Z` — list with query params
+> HTTP API so any agent/tool/curl can use it.
 
-### T10 — Search API
-- [ ] `POST /search` — `{ query, semantic?, filters, topk }`
-- [ ] `GET /search?q=X&severity=Y` — simple search via query params
-- [ ] Unified response: `{ results: [{ id, score, title, severity, status, ... }] }`
-- [ ] Input validation with Pydantic models
+### T5 — FastAPI Server
+- [ ] `POST /tickets`, `GET /tickets/:id`, `PATCH /tickets/:id`, `DELETE /tickets/:id`
+- [ ] `GET /tickets` with query params
+- [ ] Input validation, error responses
+- [ ] Tests
 
-### T11 — Health & stats
-- [ ] `GET /health` — index status, ticket count, uptime
-- [ ] `GET /stats` — tickets by severity, by status, by repo
+### T6 — Search API
+- [ ] `POST /search` — `{ query, filters, topk }`
+- [ ] `GET /health` — index stats
+- [ ] Tests
+
+**Checkpoint:** API works. Agents can integrate.
 
 ---
 
-## Phase 5: Polish
+## Phase 3: Semantic Search (T7–T8)
 
-### T12 — Tests
-- [ ] Unit tests for TicketStore (CRUD, parsing, path generation)
-- [ ] Unit tests for TicketIndex (insert, query, update, delete, rebuild)
-- [ ] Integration tests for API (all endpoints)
-- [ ] Integration tests for CLI (all commands)
-- [ ] Test coverage report
+> Optional upgrade. Pluggable embedding providers.
 
-### T13 — CI/CD
-- [ ] GitHub Actions workflow (lint, test, build)
-- [ ] Test matrix: Python 3.10, 3.11, 3.12
+### T7 — Embedding Abstraction
+- [ ] `EmbeddingProvider` interface
+- [ ] OpenAI provider
+- [ ] Local provider (sentence-transformers)
+- [ ] Auto-detect from config, skip if not configured
+- [ ] Tests
 
-### T14 — Documentation
-- [ ] API reference (OpenAPI auto-generated from FastAPI)
-- [ ] Configuration guide
-- [ ] Embedding provider setup guide
-- [ ] Contributing guide
+### T8 — Hybrid Search
+- [ ] Dense vector insert alongside BM25
+- [ ] `WeightedReRanker` for BM25 + dense
+- [ ] `--semantic` flag on CLI, `semantic: true` on API
+- [ ] Tests
 
-### T15 — Publish
-- [ ] Build wheels (`build` package)
-- [ ] Test `pip install vtic` from local wheel
-- [ ] Publish to PyPI (when ready)
+**Checkpoint:** Full hybrid search works. Zero-config BM25 + optional semantic.
 
 ---
 
-## Priority Order
+## Phase 4: Ship (T9–T10)
+
+> Tests, CI, publish.
+
+### T9 — Tests & CI
+- [ ] Unit tests (store, index, search)
+- [ ] Integration tests (CLI, API)
+- [ ] GitHub Actions (lint, test, Python 3.10–3.12)
+- [ ] Coverage report
+
+### T10 — Publish
+- [ ] Build wheels
+- [ ] Test `pip install vtic` from wheel
+- [ ] Publish to PyPI
+
+---
+
+## Priorities
 
 ```
-T1 → T2 → T3 → T4 → T7 → T9 → T10 → T12 → T13 → T14 → T15
-                 ↓         ↓
-                 T5 → T6 → T8 → T11
+T1 → T2 → T3 → T4 → T5 → T6 → T9 → T10 → T7 → T8
+         │              │              │
+         └──────────────┘──────────────┘
+          MVP: works     Ship: tested   Semantic: optional
 ```
 
-**MVP (minimum viable product):** T1 → T2 → T3 → T4 → T7 — CLI with BM25 keyword search, no embeddings, no API.
-
-**Full release:** All tickets complete.
+**MVP = T1–T4.** Everything else follows.
 
 ---
 
-## Notes
+## What We're NOT Building (Yet)
 
-- Zvec requires Linux x86_64/ARM64 or macOS ARM64 (no Windows native)
-- BM25 works out of the box — no API keys, no config, no external deps
-- Dense embeddings are purely optional
-- Markdown files are the source of truth, Zvec is the search index
-- Rebuilding index from disk is always possible (defensive design)
+- ❌ Web UI
+- ❌ RAG / auto-suggestions
+- ❌ Email-to-ticket
+- ❌ Plugin system
+- ❌ Webhooks
+- ❌ Status workflows
+- ❌ Ticket linking
+- ❌ Export/import
+- ❌ Rate limiting / auth
+
+These are all valid features. They're not v0.1.
