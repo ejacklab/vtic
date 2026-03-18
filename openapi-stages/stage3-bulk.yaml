@@ -1,0 +1,353 @@
+# OpenAPI 3.1.1 Paths - Bulk Operations, Import/Export, and Management
+# vtic — AI-first ticketing system
+
+paths:
+  # ─── Bulk Operations ───────────────────────────────────────
+
+  /tickets/bulk:
+    post:
+      summary: Bulk create tickets
+      description: Create multiple tickets in a single request. Supports dry-run mode for validation.
+      operationId: bulkCreateTickets
+      tags: [Bulk]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkCreateRequest"
+      responses:
+        "200":
+          description: Bulk creation completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResult"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      summary: Bulk update tickets
+      description: Update multiple tickets matching the provided filters.
+      operationId: bulkUpdateTickets
+      tags: [Bulk]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUpdateRequest"
+      responses:
+        "200":
+          description: Bulk update completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResult"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No tickets matched the provided filters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      summary: Bulk delete tickets
+      description: Delete multiple tickets matching the provided filters. By default, moves to trash (soft delete).
+      operationId: bulkDeleteTickets
+      tags: [Bulk]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkDeleteRequest"
+      responses:
+        "200":
+          description: Bulk deletion completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResult"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Import/Export ─────────────────────────────────────────
+
+  /export:
+    get:
+      summary: Export tickets
+      description: Export tickets in various formats. Supports filtering via query parameters.
+      operationId: exportTickets
+      tags: [Import/Export]
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, jsonl, csv, markdown, tar.gz]
+            default: json
+          description: Export format
+        - name: severity
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Severity"
+          style: form
+          explode: false
+          description: Filter by severity levels
+        - name: status
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Status"
+          style: form
+          explode: false
+          description: Filter by status values
+        - name: category
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Category"
+          style: form
+          explode: false
+          description: Filter by category
+        - name: repo
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+          description: Filter by repo (supports glob patterns)
+      responses:
+        "200":
+          description: Export file download
+          headers:
+            Content-Disposition:
+              description: Attachment filename
+              schema:
+                type: string
+                examples:
+                  value: "attachment; filename=\"vtic-export.json\""
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+            text/markdown:
+              schema:
+                type: string
+                format: binary
+            application/x-ndjson:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid format parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /import:
+    post:
+      summary: Import tickets
+      description: Import tickets from various sources (JSON, CSV, Markdown, GitHub, Jira).
+      operationId: importTickets
+      tags: [Import/Export]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportRequest"
+      responses:
+        "200":
+          description: Import completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+        "400":
+          description: Invalid source format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Management ────────────────────────────────────────────
+
+  /config:
+    get:
+      summary: Get configuration
+      description: Retrieve the current system configuration.
+      operationId: getConfig
+      tags: [Management]
+      responses:
+        "200":
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigResponse"
+
+    patch:
+      summary: Update configuration
+      description: Update configuration settings. Only provided fields are modified (partial update).
+      operationId: updateConfig
+      tags: [Management]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigResponse"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigResponse"
+        "400":
+          description: Invalid configuration values
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /trash:
+    get:
+      summary: List trashed tickets
+      description: List soft-deleted tickets with pagination.
+      operationId: listTrash
+      tags: [Management]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Max results per page
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Pagination offset
+      responses:
+        "200":
+          description: Paginated list of trashed tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TicketSummary"
+                  meta:
+                    type: object
+                    required: [total, limit, offset, has_more]
+                    properties:
+                      total:
+                        type: integer
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+                      has_more:
+                        type: boolean
+
+  /trash/{ticket_id}/restore:
+    post:
+      summary: Restore trashed ticket
+      description: Restore a soft-deleted ticket to its original state.
+      operationId: restoreTicket
+      tags: [Management]
+      parameters:
+        - name: ticket_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[CFGHST]\\d+$"
+          description: Ticket identifier (category prefix + number)
+      responses:
+        "200":
+          description: Restored ticket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketResponse"
+        "404":
+          description: Ticket not found in trash
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /trash/clean:
+    delete:
+      summary: Purge old trash
+      description: Permanently delete tickets from trash older than specified days.
+      operationId: cleanTrash
+      tags: [Management]
+      parameters:
+        - name: older_than_days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 30
+          description: Delete tickets older than this many days
+      responses:
+        "200":
+          description: Purge completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [purged]
+                properties:
+                  purged:
+                    type: integer
+                    description: Number of tickets permanently deleted

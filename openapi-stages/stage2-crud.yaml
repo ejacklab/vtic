@@ -1,0 +1,203 @@
+# PATHS: Ticket CRUD Endpoints
+# OpenAPI 3.1.1 - vtic API
+
+paths:
+  /tickets:
+    get:
+      summary: List tickets
+      description: |
+        Retrieve a paginated list of tickets with optional filtering.
+        Supports filtering by severity, status, category, repo, assignee, tags,
+        and date ranges. Results can be sorted and paginated.
+      operationId: listTickets
+      tags: [Tickets]
+      parameters:
+        - $ref: "#/components/parameters/severityFilter"
+        - $ref: "#/components/parameters/statusFilter"
+        - $ref: "#/components/parameters/categoryFilter"
+        - $ref: "#/components/parameters/repoFilter"
+        - name: assignee
+          in: query
+          schema:
+            type: string
+          description: Filter by assignee username
+        - name: tags
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+          description: Filter by tags (ticket must have ALL specified tags)
+        - name: created_after
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter tickets created after this timestamp (ISO 8601)
+        - name: created_before
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter tickets created before this timestamp (ISO 8601)
+        - $ref: "#/components/parameters/sortParam"
+        - $ref: "#/components/parameters/limitParam"
+        - $ref: "#/components/parameters/offsetParam"
+        - $ref: "#/components/parameters/formatParam"
+      responses:
+        "200":
+          description: Successfully retrieved list of tickets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketListResponse"
+        "400":
+          description: Invalid filter parameters provided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Create ticket
+      description: |
+        Create a new ticket with the provided data. The ticket ID will be
+        auto-generated based on the category (e.g., C1 for crash, F1 for feature).
+        Timestamps are automatically set for created and updated fields.
+      operationId: createTicket
+      tags: [Tickets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketCreate"
+      responses:
+        "201":
+          description: Ticket successfully created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketResponse"
+        "400":
+          description: Validation failure - missing or invalid fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Duplicate ID - ticket with this ID already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error during ticket creation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /tickets/{ticket_id}:
+    get:
+      summary: Get ticket
+      description: |
+        Retrieve a single ticket by its ID. Returns the complete ticket
+        with all fields including description, tags, and references.
+      operationId: getTicket
+      tags: [Tickets]
+      parameters:
+        - $ref: "#/components/parameters/ticketIdParam"
+        - $ref: "#/components/parameters/formatParam"
+      responses:
+        "200":
+          description: Successfully retrieved ticket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketResponse"
+            text/markdown:
+              schema:
+                type: string
+              description: Raw markdown content when format=markdown
+        "404":
+          description: Ticket not found - no ticket exists with this ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      summary: Update ticket
+      description: |
+        Partially update a ticket. Only include fields that need to be changed.
+        The updated timestamp is automatically refreshed. If workflow is
+        configured, invalid status transitions will be rejected.
+      operationId: updateTicket
+      tags: [Tickets]
+      parameters:
+        - $ref: "#/components/parameters/ticketIdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketUpdate"
+      responses:
+        "200":
+          description: Ticket successfully updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketResponse"
+        "400":
+          description: Validation error - invalid field values
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ticket not found - no ticket exists with this ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Invalid status transition - violates configured workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      summary: Delete ticket
+      description: |
+        Delete a ticket. By default, performs a soft delete (marks as deleted
+        but retains data). Use force=true for permanent deletion. Use dry_run
+        to preview the deletion without actually removing the ticket.
+      operationId: deleteTicket
+      tags: [Tickets]
+      parameters:
+        - $ref: "#/components/parameters/ticketIdParam"
+        - name: force
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force permanent deletion (hard delete) instead of soft delete
+        - $ref: "#/components/parameters/dryRunParam"
+      responses:
+        "200":
+          description: Ticket successfully deleted (soft-deleted ticket data returned)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketResponse"
+        "404":
+          description: Ticket not found - no ticket exists with this ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
