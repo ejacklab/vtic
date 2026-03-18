@@ -255,10 +255,6 @@ class TicketCreate(BaseModel):
         default=None,
         description="Assigned team member",
     )
-    fix: Optional[str] = Field(
-        default=None,
-        description="Resolution details (usually set later)",
-    )
     tags: List[str] = Field(
         default_factory=list,
         description="Labels for categorization",
