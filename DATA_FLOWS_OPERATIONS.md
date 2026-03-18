@@ -414,7 +414,7 @@ flowchart TD
     subgraph Errors["🔴 Errors"]
         E400["HTTP 400<br/>{error: 'Invalid query syntax'}"]
         E503["HTTP 503<br/>{error: 'Index not initialized'}"]
-        E502["HTTP 502<br/>{error: 'Embedding provider error'}"]
+        E503["HTTP 503<br/>{error: 'Embedding provider error'}"]
     end
 
     A --> B
@@ -434,7 +434,7 @@ flowchart TD
     H --> H1
     H1 -.->|"Not ready"| E503
     H1 -->|"Ready"| I
-    I -.->|"Provider fails"| E502
+    I -.->|"Provider fails"| E503
     I -->|"Embedding"| J
     J --> K
     
@@ -742,5 +742,5 @@ port = 8080
 | `404` | GET/PATCH/DELETE | Ticket ID not found |
 | `409` | POST | Duplicate ticket ID |
 | `500` | All | Internal server error, file system errors |
-| `502` | POST /search | Embedding provider unavailable |
+| `503` | POST /search | Embedding provider unavailable |
 | `503` | POST /search | Zvec index not initialized |

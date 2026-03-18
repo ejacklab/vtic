@@ -128,7 +128,7 @@ sequenceDiagram
 
 #### Level 2: Component Interactions
 
-1. **API Layer** (`routes/health.py`):
+1. **API Layer** (`api/routes/system.py`):
    - No authentication required
    - No request body parsing needed
    - Calls `core.health_check()`
@@ -208,7 +208,7 @@ sequenceDiagram
 
 #### Level 2: Component Interactions
 
-1. **API Layer** (`routes/config.py`):
+1. **API Layer** (`api/routes/system.py`):
    - Validates authentication
    - Checks permissions
    - Returns current configuration
@@ -439,7 +439,7 @@ sequenceDiagram
 
 #### Level 2: Component Interactions
 
-1. **API Layer** (`routes/tickets.py`):
+1. **API Layer** (`api/routes/tickets.py`):
    - Validates `TicketCreate` schema
    - Ensures required fields present
    - Calls `ticket_manager.create()`
@@ -938,7 +938,7 @@ sequenceDiagram
 
 #### Level 2: Component Interactions
 
-1. **API Layer** (`routes/search.py`):
+1. **API Layer** (`api/routes/search.py`):
    - Validates `SearchQuery` schema
    - Extracts `explain` parameter
    - Returns 400 if query empty
