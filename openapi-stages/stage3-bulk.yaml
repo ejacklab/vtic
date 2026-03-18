@@ -1,99 +1,65 @@
-# OpenAPI 3.1.1 Paths - Bulk Operations, Import/Export, and Management
-# vtic — AI-first ticketing system
+# Stage 3: Bulk Operations, Import/Export, Management
+# Canonical reference extracted from openapi.yaml
 
 paths:
-  # ─── Bulk Operations ───────────────────────────────────────
-
   /tickets/bulk:
     post:
-      summary: Bulk create tickets
-      description: Create multiple tickets in a single request. Supports dry-run mode for validation.
-      operationId: bulkCreateTickets
       tags: [Bulk]
+      summary: Bulk create tickets
+      operationId: bulkCreateTickets
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BulkCreateRequest"
+              $ref: '#/components/schemas/BulkCreateRequest'
       responses:
-        "200":
+        '200':
           description: Bulk creation completed
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BulkOperationResult"
-        "400":
-          description: Invalid request body
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
+                $ref: '#/components/schemas/BulkOperationResult'
     patch:
-      summary: Bulk update tickets
-      description: Update multiple tickets matching the provided filters.
-      operationId: bulkUpdateTickets
       tags: [Bulk]
+      summary: Bulk update tickets
+      operationId: bulkUpdateTickets
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BulkUpdateRequest"
+              $ref: '#/components/schemas/BulkUpdateRequest'
       responses:
-        "200":
+        '200':
           description: Bulk update completed
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BulkOperationResult"
-        "400":
-          description: Invalid request body
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: No tickets matched the provided filters
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
+                $ref: '#/components/schemas/BulkOperationResult'
     delete:
-      summary: Bulk delete tickets
-      description: Delete multiple tickets matching the provided filters. By default, moves to trash (soft delete).
-      operationId: bulkDeleteTickets
       tags: [Bulk]
+      summary: Bulk delete tickets
+      operationId: bulkDeleteTickets
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BulkDeleteRequest"
+              $ref: '#/components/schemas/BulkDeleteRequest'
       responses:
-        "200":
+        '200':
           description: Bulk deletion completed
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BulkOperationResult"
-        "400":
-          description: Invalid request body
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  # ─── Import/Export ─────────────────────────────────────────
+                $ref: '#/components/schemas/BulkOperationResult'
 
   /export:
     get:
-      summary: Export tickets
-      description: Export tickets in various formats. Supports filtering via query parameters.
-      operationId: exportTickets
       tags: [Import/Export]
+      summary: Export tickets
+      operationId: exportTickets
       parameters:
         - name: format
           in: query
@@ -101,34 +67,30 @@ paths:
             type: string
             enum: [json, jsonl, csv, markdown, tar.gz]
             default: json
-          description: Export format
         - name: severity
           in: query
           schema:
             type: array
             items:
-              $ref: "#/components/schemas/Severity"
+              $ref: '#/components/schemas/Severity'
           style: form
           explode: false
-          description: Filter by severity levels
         - name: status
           in: query
           schema:
             type: array
             items:
-              $ref: "#/components/schemas/Status"
+              $ref: '#/components/schemas/Status'
           style: form
           explode: false
-          description: Filter by status values
         - name: category
           in: query
           schema:
             type: array
             items:
-              $ref: "#/components/schemas/Category"
+              $ref: '#/components/schemas/Category'
           style: form
           explode: false
-          description: Filter by category
         - name: repo
           in: query
           schema:
@@ -137,124 +99,113 @@ paths:
               type: string
           style: form
           explode: false
-          description: Filter by repo (supports glob patterns)
       responses:
-        "200":
+        '200':
           description: Export file download
           headers:
             Content-Disposition:
-              description: Attachment filename
               schema:
                 type: string
-                examples:
-                  value: "attachment; filename=\"vtic-export.json\""
-          content:
-            application/json:
-              schema:
-                type: string
-                format: binary
-            text/csv:
-              schema:
-                type: string
-                format: binary
-            application/gzip:
-              schema:
-                type: string
-                format: binary
-            text/markdown:
-              schema:
-                type: string
-                format: binary
-            application/x-ndjson:
-              schema:
-                type: string
-                format: binary
-        "400":
-          description: Invalid format parameter
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /import:
     post:
-      summary: Import tickets
-      description: Import tickets from various sources (JSON, CSV, Markdown, GitHub, Jira).
-      operationId: importTickets
       tags: [Import/Export]
+      summary: Import tickets
+      operationId: importTickets
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ImportRequest"
+              $ref: '#/components/schemas/ImportRequest'
       responses:
-        "200":
+        '200':
           description: Import completed successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ImportResult"
-        "400":
-          description: Invalid source format
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "413":
-          description: Payload too large
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: '#/components/schemas/ImportResult'
 
-  # ─── Management ────────────────────────────────────────────
-
-  /config:
-    get:
-      summary: Get configuration
-      description: Retrieve the current system configuration.
-      operationId: getConfig
+  /reindex:
+    post:
       tags: [Management]
-      responses:
-        "200":
-          description: Current configuration
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ConfigResponse"
-
-    patch:
-      summary: Update configuration
-      description: Update configuration settings. Only provided fields are modified (partial update).
-      operationId: updateConfig
-      tags: [Management]
+      summary: Rebuild search index
+      operationId: reindex
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConfigResponse"
+              $ref: '#/components/schemas/ReindexRequest'
       responses:
-        "200":
-          description: Updated configuration
+        '200':
+          description: Reindex completed successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ConfigResponse"
-        "400":
-          description: Invalid configuration values
+                $ref: '#/components/schemas/ReindexResult'
+
+  /stats:
+    get:
+      tags: [Management]
+      summary: Get ticket statistics
+      operationId: getStats
+      parameters:
+        - name: by_repo
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: severity
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Severity'
+          style: form
+          explode: false
+        - name: status
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Status'
+          style: form
+          explode: false
+        - name: category
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Category'
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: Statistics retrieved successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: '#/components/schemas/StatsResponse'
+
+  /validate:
+    get:
+      tags: [Management]
+      summary: Validate all ticket files
+      operationId: validateTickets
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
 
   /trash:
     get:
-      summary: List trashed tickets
-      description: List soft-deleted tickets with pagination.
-      operationId: listTrash
       tags: [Management]
+      summary: List trashed tickets
+      operationId: listTrash
       parameters:
         - name: limit
           in: query
@@ -263,74 +214,25 @@ paths:
             minimum: 1
             maximum: 100
             default: 20
-          description: Max results per page
         - name: offset
           in: query
           schema:
             type: integer
             minimum: 0
             default: 0
-          description: Pagination offset
       responses:
-        "200":
+        '200':
           description: Paginated list of trashed tickets
           content:
             application/json:
               schema:
-                type: object
-                required: [data, meta]
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/TicketSummary"
-                  meta:
-                    type: object
-                    required: [total, limit, offset, has_more]
-                    properties:
-                      total:
-                        type: integer
-                      limit:
-                        type: integer
-                      offset:
-                        type: integer
-                      has_more:
-                        type: boolean
-
-  /trash/{ticket_id}/restore:
-    post:
-      summary: Restore trashed ticket
-      description: Restore a soft-deleted ticket to its original state.
-      operationId: restoreTicket
-      tags: [Management]
-      parameters:
-        - name: ticket_id
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: "^[CFGHST]\\d+$"
-          description: Ticket identifier (category prefix + number)
-      responses:
-        "200":
-          description: Restored ticket
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TicketResponse"
-        "404":
-          description: Ticket not found in trash
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: '#/components/schemas/TrashListResponse'
 
   /trash/clean:
     delete:
-      summary: Purge old trash
-      description: Permanently delete tickets from trash older than specified days.
-      operationId: cleanTrash
       tags: [Management]
+      summary: Purge old trash
+      operationId: cleanTrash
       parameters:
         - name: older_than_days
           in: query
@@ -338,16 +240,475 @@ paths:
             type: integer
             minimum: 1
             default: 30
-          description: Delete tickets older than this many days
       responses:
-        "200":
+        '200':
           description: Purge completed
           content:
             application/json:
               schema:
-                type: object
-                required: [purged]
-                properties:
-                  purged:
-                    type: integer
-                    description: Number of tickets permanently deleted
+                $ref: '#/components/schemas/TrashCleanResult'
+
+  /trash/{ticket_id}/restore:
+    post:
+      tags: [Management]
+      summary: Restore trashed ticket
+      operationId: restoreTicket
+      parameters:
+        - name: ticket_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[CFGHST]\d+$
+      responses:
+        '200':
+          description: Restored ticket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+
+components:
+  schemas:
+    Severity:
+      type: string
+      enum: [critical, high, medium, low, info]
+
+    Status:
+      type: string
+      enum: [open, in_progress, blocked, fixed, wont_fix, closed]
+
+    Category:
+      type: string
+      enum: [crash, hotfix, feature, security, general]
+
+    EmbeddingProvider:
+      type: string
+      enum: [local, openai, custom, none]
+
+    FilterSet:
+      type: object
+      properties:
+        severity:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/Severity'
+        status:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/Status'
+        repo:
+          type: [array, 'null']
+          items:
+            type: string
+        category:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/Category'
+        assignee:
+          type: [string, 'null']
+        tags:
+          type: [array, 'null']
+          items:
+            type: string
+        created_after:
+          type: [string, 'null']
+          format: date-time
+        created_before:
+          type: [string, 'null']
+          format: date-time
+        updated_after:
+          type: [string, 'null']
+          format: date-time
+
+    TicketCreate:
+      type: object
+      required: [title, description, repo]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          minLength: 1
+        repo:
+          type: string
+          pattern: ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$
+        category:
+          $ref: '#/components/schemas/Category'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        status:
+          $ref: '#/components/schemas/Status'
+        assignee:
+          type: [string, 'null']
+        tags:
+          type: array
+          items:
+            type: string
+            maxLength: 50
+          maxItems: 20
+        references:
+          type: array
+          items:
+            type: string
+            pattern: ^[CFGHST]\d+$
+
+    TicketUpdate:
+      type: object
+      properties:
+        title:
+          type: [string, 'null']
+        description:
+          type: [string, 'null']
+        description_append:
+          type: [string, 'null']
+        category:
+          oneOf:
+            - $ref: '#/components/schemas/Category'
+            - type: 'null'
+        severity:
+          oneOf:
+            - $ref: '#/components/schemas/Severity'
+            - type: 'null'
+        status:
+          oneOf:
+            - $ref: '#/components/schemas/Status'
+            - type: 'null'
+        assignee:
+          type: [string, 'null']
+        fix:
+          type: [string, 'null']
+        tags:
+          type: [array, 'null']
+          items:
+            type: string
+        references:
+          type: [array, 'null']
+          items:
+            type: string
+
+    Ticket:
+      type: object
+      required: [id, title, description, repo, category, severity, status, created, updated]
+      properties:
+        id:
+          type: string
+          pattern: ^[CFGHST]\d+$
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        repo:
+          type: string
+        category:
+          $ref: '#/components/schemas/Category'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        status:
+          $ref: '#/components/schemas/Status'
+        assignee:
+          type: [string, 'null']
+        fix:
+          type: [string, 'null']
+        tags:
+          type: array
+          items:
+            type: string
+        references:
+          type: array
+          items:
+            type: string
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+
+    TicketSummary:
+      type: object
+      required: [id, title, severity, status, repo, category, created]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        severity:
+          $ref: '#/components/schemas/Severity'
+        status:
+          $ref: '#/components/schemas/Status'
+        repo:
+          type: string
+        category:
+          $ref: '#/components/schemas/Category'
+        assignee:
+          type: [string, 'null']
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+
+    TicketResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Ticket'
+        meta:
+          type: object
+          properties:
+            request_id:
+              type: string
+            warnings:
+              type: array
+              items:
+                type: string
+
+    BulkCreateRequest:
+      type: object
+      required: [tickets]
+      properties:
+        tickets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketCreate'
+          minItems: 1
+          maxItems: 500
+        dry_run:
+          type: boolean
+          default: false
+
+    BulkUpdateRequest:
+      type: object
+      required: [filters, changes]
+      properties:
+        filters:
+          $ref: '#/components/schemas/FilterSet'
+        changes:
+          $ref: '#/components/schemas/TicketUpdate'
+        dry_run:
+          type: boolean
+          default: false
+
+    BulkDeleteRequest:
+      type: object
+      required: [filters]
+      properties:
+        filters:
+          $ref: '#/components/schemas/FilterSet'
+        force:
+          type: boolean
+          default: false
+        dry_run:
+          type: boolean
+          default: false
+
+    BulkOperationResult:
+      type: object
+      required: [total, succeeded, failed]
+      properties:
+        total:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              ticket_id:
+                type: [string, 'null']
+              status:
+                type: string
+                enum: [created, updated, deleted, error]
+              error:
+                type: [string, 'null']
+        request_id:
+          type: string
+
+    ImportRequest:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [json, csv, markdown, github, jira]
+        data:
+          type: [string, 'null']
+        url:
+          type: [string, 'null']
+        repo_mapping:
+          type: [object, 'null']
+          additionalProperties:
+            type: string
+        preserve_ids:
+          type: boolean
+          default: false
+        dry_run:
+          type: boolean
+          default: false
+
+    ImportResult:
+      type: object
+      required: [total, imported, skipped, failed]
+      properties:
+        total:
+          type: integer
+        imported:
+          type: integer
+        skipped:
+          type: integer
+        failed:
+          type: integer
+        id_mapping:
+          type: [object, 'null']
+          additionalProperties:
+            type: string
+        request_id:
+          type: string
+
+    ReindexRequest:
+      type: object
+      properties:
+        ticket_id:
+          type: [string, 'null']
+          pattern: ^[CFGHST]\d+$
+        force:
+          type: boolean
+          default: false
+        provider:
+          oneOf:
+            - $ref: '#/components/schemas/EmbeddingProvider'
+            - type: 'null'
+
+    ReindexResult:
+      type: object
+      required: [processed, skipped, failed, duration_ms]
+      properties:
+        processed:
+          type: integer
+        skipped:
+          type: integer
+        failed:
+          type: integer
+        duration_ms:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              ticket_id:
+                type: string
+              message:
+                type: string
+        request_id:
+          type: string
+
+    StatsResponse:
+      type: object
+      required: [totals, by_status, by_severity, by_category]
+      properties:
+        totals:
+          type: object
+          required: [all, open, closed]
+          properties:
+            all:
+              type: integer
+            open:
+              type: integer
+            closed:
+              type: integer
+        by_status:
+          type: object
+          additionalProperties:
+            type: integer
+        by_severity:
+          type: object
+          additionalProperties:
+            type: integer
+        by_category:
+          type: object
+          additionalProperties:
+            type: integer
+        by_repo:
+          type: [object, 'null']
+          additionalProperties:
+            type: integer
+        date_range:
+          type: [object, 'null']
+          properties:
+            earliest:
+              type: string
+              format: date-time
+            latest:
+              type: string
+              format: date-time
+        request_id:
+          type: string
+
+    ValidationResult:
+      type: object
+      required: [total, valid, invalid, errors]
+      properties:
+        total:
+          type: integer
+        valid:
+          type: integer
+        invalid:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            required: [ticket_id, errors]
+            properties:
+              ticket_id:
+                type: string
+              errors:
+                type: array
+                items:
+                  type: string
+        request_id:
+          type: string
+
+    TrashListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketSummary'
+        meta:
+          type: object
+          required: [total, limit, offset, has_more]
+          properties:
+            total:
+              type: integer
+            limit:
+              type: integer
+            offset:
+              type: integer
+            has_more:
+              type: boolean
+            request_id:
+              type: string
+
+    TrashCleanResult:
+      type: object
+      required: [purged]
+      properties:
+        purged:
+          type: integer
+        request_id:
+          type: string

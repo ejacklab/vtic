@@ -12,13 +12,13 @@ Pydantic v2 models for hybrid BM25 + semantic search API.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 # Import canonical enums from Stage 1
 # In actual implementation:
-# from .enums import Severity, Status, Category, SortField, SortOrder
+# from .enums import Severity, Status, Category
 ```
 
 ---
@@ -30,282 +30,194 @@ These enums are defined in `data-models-stage1-enums.md` and imported here.
 ```python
 # Re-exported from stage1 for convenience
 from .enums import (
-    Severity,      # critical, high, medium, low
+    Severity,      # critical, high, medium, low, info
     Status,        # open, in_progress, blocked, fixed, wont_fix, closed
-    Category,      # security, auth, code_quality, performance, frontend, 
-                   # backend, testing, documentation, infrastructure, 
-                   # configuration, api, data, ui, dependencies, build, other
-    SortField,     # created_at, updated_at, severity, status, relevance, title
-    SortOrder,     # asc, desc
+    Category,      # crash, hotfix, feature, security, general
 )
 
-# Literal types for match_type (not an enum, use Literal)
-MatchType = Literal["bm25", "semantic", "hybrid"]
+# Literal types for source (not an enum, use Literal)
+Source = Literal["bm25", "semantic", "hybrid"]
 ```
 
 ---
 
-## 1. SearchFilter
+## 1. FilterSet
 
-Structured filters for refining search queries.
+Structured filters for refining search queries. Uses arrays for multi-select fields.
 
 ```python
-class SearchFilter(BaseModel):
+class FilterSet(BaseModel):
     """
-    Structured filters for ticket search.
+    Query filters applied post-search.
     
     All filters are optional. When multiple filters are provided,
-    they are combined with AND logic.
+    they are combined with AND logic. Multi-select fields (severity, status,
+    category, repo, tags) use arrays to allow OR logic within each field.
     
-    Supported filter types (per FEATURES.md §2.4):
-    - Equality filters: severity, status, category
+    Supported filter types (per OpenAPI spec):
+    - Multi-select filters: severity[], status[], category[], repo[], tags[]
     - Repo glob patterns: supports '*' wildcard (e.g., 'ejacklab/*', '*/vtic')
     - Date range filters: created_after/before, updated_after/before
+    - Single-select: assignee
     
     Examples:
-        >>> # Filter by single severity
-        >>> SearchFilter(severity=Severity.CRITICAL)
+        >>> # Filter by multiple severities (OR within field)
+        >>> FilterSet(severity=[Severity.CRITICAL, Severity.HIGH])
         
-        >>> # Filter by repo glob pattern
-        >>> SearchFilter(repo="ejacklab/*")
+        >>> # Filter by repo glob patterns
+        >>> FilterSet(repo=["ejacklab/*"])
         
         >>> # Combined date range filter
-        >>> SearchFilter(
-        ...     created_after=datetime(2024, 1, 1),
-        ...     created_before=datetime(2024, 12, 31)
+        >>> FilterSet(
+        ...     created_after="2024-01-01T00:00:00Z",
+        ...     created_before="2024-12-31T23:59:59Z"
         ... )
     """
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "severity": "critical",
-                "status": "open",
-                "category": "security",
-                "repo": "ejacklab/*",
+                "severity": ["critical", "high"],
+                "status": ["open", "in_progress"],
+                "repo": ["ejacklab/open-dsearch"],
                 "created_after": "2024-01-01T00:00:00Z",
                 "created_before": "2024-12-31T23:59:59Z"
             }
         }
     )
     
-    # -- Equality filters --
-    severity: Severity | None = Field(
+    # -- Multi-select equality filters (arrays) --
+    severity: Optional[list[Severity]] = Field(
         default=None,
-        description="Filter by ticket severity level (critical, high, medium, low)"
+        description="Filter by severity levels (OR logic within this field)"
     )
-    status: Status | None = Field(
+    status: Optional[list[Status]] = Field(
         default=None,
-        description="Filter by ticket status (open, in_progress, blocked, fixed, wont_fix, closed)"
+        description="Filter by status values (OR logic within this field)"
     )
-    category: Category | None = Field(
+    category: Optional[list[Category]] = Field(
         default=None,
-        description="Filter by ticket category (security, auth, code_quality, performance, frontend, backend, testing, documentation, infrastructure, configuration, api, data, ui, dependencies, build, other)"
+        description="Filter by category (OR logic within this field)"
     )
     
-    # -- Repo glob patterns --
-    repo: str | None = Field(
+    # -- Repo glob patterns (array) --
+    repo: Optional[list[str]] = Field(
         default=None,
-        description="Filter by repository. Supports glob patterns: 'owner/repo' for exact match, 'owner/*' for all repos under owner, '*/repo' for repo in any owner",
-        examples=["ejacklab/open-dsearch", "ejacklab/*", "*/vtic"]
+        description="Filter by repo. Supports globs: 'owner/*' matches all repos under owner, "
+                    "'*/repo' for repo in any owner",
+        examples=[["ejacklab/open-dsearch"], ["ejacklab/*"], ["*/vtic"]]
+    )
+    
+    # -- Tags filter (array) --
+    tags: Optional[list[str]] = Field(
+        default=None,
+        description="Filter by tags (ticket must have ALL specified tags)"
+    )
+    
+    # -- Single-select filters --
+    assignee: Optional[str] = Field(
+        default=None,
+        description="Filter by assignee username"
     )
     
     # -- Date range filters (created) --
-    created_after: datetime | None = Field(
+    created_after: Optional[datetime] = Field(
         default=None,
-        description="Only include tickets created after this datetime (inclusive)"
+        description="Only include tickets created after this timestamp"
     )
-    created_before: datetime | None = Field(
+    created_before: Optional[datetime] = Field(
         default=None,
-        description="Only include tickets created before this datetime (inclusive)"
+        description="Only include tickets created before this timestamp"
     )
     
     # -- Date range filters (updated) --
-    updated_after: datetime | None = Field(
+    updated_after: Optional[datetime] = Field(
         default=None,
-        description="Only include tickets updated after this datetime (inclusive)"
-    )
-    updated_before: datetime | None = Field(
-        default=None,
-        description="Only include tickets updated before this datetime (inclusive)"
+        description="Only include tickets updated after this timestamp"
     )
     
-    @field_validator("repo")
+    @field_validator("repo", mode="before")
     @classmethod
-    def validate_repo_pattern(cls, v: str | None) -> str | None:
+    def validate_repo_patterns(cls, v: Optional[list[str]]) -> Optional[list[str]]:
         """
-        Validate repository pattern format.
+        Validate repository pattern formats.
         
         Rules:
-        - Must be in 'owner/repo' format (exactly one '/')
+        - Each pattern must be in 'owner/repo' format (exactly one '/')
         - Supports '*' as wildcard for glob matching
-        - Owner and repo names must be valid (alphanumeric, hyphens, underscores, dots)
         """
         if v is None:
             return v
             
-        # Allow simple glob patterns
-        if v == "*":
-            return v
-            
-        # Split by '/' - should have exactly 2 parts (glob allows owner/* or */repo)
-        parts = v.split("/")
-        if len(parts) != 2:
-            raise ValueError(
-                f"Invalid repo pattern '{v}'. Must be in 'owner/repo' format. "
-                "Examples: 'ejacklab/open-dsearch', 'ejacklab/*', '*/vtic'"
-            )
-        
-        owner, repo = parts
-        
-        # Validate owner part (unless it's a wildcard)
-        if owner != "*":
-            if not owner.replace("-", "").replace("_", "").isalnum():
+        validated = []
+        for pattern in v:
+            # Allow simple glob patterns
+            if pattern == "*":
+                validated.append(pattern)
+                continue
+                
+            # Split by '/' - should have exactly 2 parts
+            parts = pattern.split("/")
+            if len(parts) != 2:
                 raise ValueError(
-                    f"Invalid owner '{owner}'. Owner must contain only alphanumeric "
-                    "characters, hyphens, and underscores."
+                    f"Invalid repo pattern '{pattern}'. Must be in 'owner/repo' format. "
+                    "Examples: 'ejacklab/open-dsearch', 'ejacklab/*', '*/vtic'"
                 )
+            validated.append(pattern)
         
-        # Validate repo part (unless it's a wildcard)  
-        if repo != "*":
-            if not repo.replace("-", "").replace("_", "").replace(".", "").isalnum():
-                raise ValueError(
-                    f"Invalid repo name '{repo}'. Repo must contain only alphanumeric "
-                    "characters, hyphens, underscores, and dots."
-                )
-        
-        return v
-    
-    @field_validator("created_before", "created_after", "updated_before", "updated_after")
-    @classmethod
-    def validate_datetime_has_timezone(cls, v: datetime | None) -> datetime | None:
-        """Ensure datetime values have timezone info (treat naive as UTC)."""
-        if v is None:
-            return v
-        # If naive datetime, assume UTC
-        if v.tzinfo is None:
-            from datetime import timezone
-            return v.replace(tzinfo=timezone.utc)
-        return v
-    
-    def to_zvec_filter(self) -> str | None:
-        """
-        Convert filter to Zvec filter expression string.
-        
-        Returns:
-            Zvec filter expression or None if no filters set.
-            
-        Example:
-            >>> SearchFilter(severity="critical", status="open").to_zvec_filter()
-            "severity == 'critical' and status == 'open'"
-        """
-        conditions: list[str] = []
-        
-        if self.severity is not None:
-            conditions.append(f"severity == '{self.severity.value}'")
-        
-        if self.status is not None:
-            conditions.append(f"status == '{self.status.value}'")
-        
-        if self.category is not None:
-            conditions.append(f"category == '{self.category.value}'")
-        
-        if self.repo is not None:
-            if self.repo == "*":
-                # Match all repos - no filter needed
-                pass
-            elif "*" in self.repo:
-                # Convert glob to LIKE pattern
-                like_pattern = self.repo.replace("*", "%")
-                conditions.append(f"repo LIKE '{like_pattern}'")
-            else:
-                # Exact match
-                conditions.append(f"repo == '{self.repo}'")
-        
-        if self.created_after is not None:
-            ts = self.created_after.isoformat()
-            conditions.append(f"created_at >= '{ts}'")
-        
-        if self.created_before is not None:
-            ts = self.created_before.isoformat()
-            conditions.append(f"created_at <= '{ts}'")
-        
-        if self.updated_after is not None:
-            ts = self.updated_after.isoformat()
-            conditions.append(f"updated_at >= '{ts}'")
-        
-        if self.updated_before is not None:
-            ts = self.updated_before.isoformat()
-            conditions.append(f"updated_at <= '{ts}'")
-        
-        if not conditions:
-            return None
-        
-        return " and ".join(conditions)
+        return validated
     
     def is_empty(self) -> bool:
         """Check if any filter is set."""
         return all([
-            self.severity is None,
-            self.status is None,
-            self.category is None,
-            self.repo is None,
+            self.severity is None or len(self.severity) == 0,
+            self.status is None or len(self.status) == 0,
+            self.category is None or len(self.category) == 0,
+            self.repo is None or len(self.repo) == 0,
+            self.tags is None or len(self.tags) == 0,
+            self.assignee is None,
             self.created_after is None,
             self.created_before is None,
             self.updated_after is None,
-            self.updated_before is None,
         ])
-
-
-# Example usage
-SEARCH_FILTER_EXAMPLES = [
-    SearchFilter(severity=Severity.CRITICAL),
-    SearchFilter(repo="ejacklab/open-dsearch"),
-    SearchFilter(repo="ejacklab/*"),
-    SearchFilter(
-        status=Status.OPEN,
-        category=Category.SECURITY,
-        created_after=datetime(2024, 1, 1)
-    ),
-]
 ```
 
 ---
 
-## 2. SearchRequest
+## 2. SearchQuery
 
 POST /search request body.
 
 ```python
-class SearchRequest(BaseModel):
+class SearchQuery(BaseModel):
     """
-    Request body for the POST /search endpoint.
-    
-    Performs hybrid BM25 + semantic search on tickets with optional
-    structured filtering.
+    Search request with hybrid BM25 + semantic options.
     
     Validation:
-    - query: required, 1-1000 characters, no control characters
-    - topk: 1-100 (default: 10)
+    - query: required, 1-500 characters
+    - limit: 1-100 (default: 20)
+    - offset: 0+ (default: 0)
+    - sort: field name with optional '-' prefix for descending (default: -score)
+    - min_score: 0.0-1.0 (default: 0.0)
     
     Examples:
         >>> # Simple keyword search
-        >>> SearchRequest(query="CORS authentication error")
+        >>> SearchQuery(query="CORS authentication error")
         
         >>> # Semantic search with filters
-        >>> SearchRequest(
+        >>> SearchQuery(
         ...     query="database connection timeout",
         ...     semantic=True,
-        ...     filters=SearchFilter(severity=Severity.HIGH),
-        ...     topk=20
+        ...     filters=FilterSet(severity=[Severity.HIGH]),
+        ...     limit=20
         ... )
         
-        >>> # Search with sorting by creation date
-        >>> SearchRequest(
+        >>> # Search with sorting and pagination
+        >>> SearchQuery(
         ...     query="memory leak",
-        ...     sort_by=SortField.CREATED_AT,
-        ...     sort_order=SortOrder.DESC,
-        ...     topk=50
+        ...     sort="-created",
+        ...     limit=50,
+        ...     offset=100
         ... )
     """
     
@@ -315,12 +227,13 @@ class SearchRequest(BaseModel):
                 "query": "CORS wildcard configuration",
                 "semantic": True,
                 "filters": {
-                    "severity": "critical",
-                    "status": "open"
+                    "severity": ["critical"],
+                    "status": ["open"]
                 },
-                "topk": 10,
-                "sort_by": "relevance",
-                "sort_order": "desc"
+                "limit": 10,
+                "offset": 0,
+                "sort": "-score",
+                "min_score": 0.01
             }
         }
     )
@@ -329,38 +242,46 @@ class SearchRequest(BaseModel):
     query: str = Field(
         ...,  # required
         min_length=1,
-        max_length=1000,
-        description="Search query string. Supports keyword terms, phrases (in quotes), and natural language for semantic search.",
+        max_length=500,
+        description="Search query string",
         examples=[
             "CORS wildcard configuration",
             "database connection timeout",
-            '"authentication error"',
+            "authentication failure after password reset",
         ]
     )
     
     # -- Optional with defaults --
     semantic: bool = Field(
         default=False,
-        description="Enable dense embedding (semantic) search in addition to BM25 keyword search. "
-                    "Requires an embedding provider to be configured."
+        description="Enable semantic (vector) search in addition to BM25"
     )
-    filters: SearchFilter | None = Field(
+    filters: Optional[FilterSet] = Field(
         default=None,
-        description="Structured filters to narrow search results. Supports severity, status, category, repo glob, and date ranges."
+        description="Structured filters to narrow search results"
     )
-    topk: int = Field(
-        default=10,
+    limit: int = Field(
+        default=20,
         ge=1,
         le=100,
-        description="Maximum number of results to return. Must be between 1 and 100. Default: 10."
+        description="Maximum number of results to return. Default: 20."
     )
-    sort_by: SortField = Field(
-        default=SortField.RELEVANCE,
-        description="Field to sort results by. 'relevance' sorts by search score; other fields sort by ticket metadata."
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Pagination offset. Default: 0."
     )
-    sort_order: SortOrder = Field(
-        default=SortOrder.DESC,
-        description="Sort direction: 'asc' for ascending, 'desc' for descending"
+    sort: str = Field(
+        default="-score",
+        pattern=r"^-?[a-zA-Z_]+$",
+        description="Sort field. Prefix with - for descending. "
+                    "Default: -score (relevance). Use created, updated, severity for non-search lists."
+    )
+    min_score: Optional[float] = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Minimum relevance score threshold (0-1). Results below are excluded."
     )
     
     @field_validator("query")
@@ -372,437 +293,311 @@ class SearchRequest(BaseModel):
         Rules:
         - Strip leading/trailing whitespace
         - Reject queries that are only whitespace
-        - Reject queries with control characters
         """
         v = v.strip()
         
         if not v:
             raise ValueError("Query cannot be empty or contain only whitespace")
         
-        # Check for control characters (except common whitespace)
-        for char in v:
-            if ord(char) < 32 and char not in "\t\n\r":
-                raise ValueError(
-                    f"Query contains invalid control character (code: {ord(char)}). "
-                    "Queries must be valid UTF-8 text."
-                )
-        
         return v
     
-    @field_validator("topk")
+    @field_validator("sort")
     @classmethod
-    def validate_topk(cls, v: int) -> int:
-        """Ensure topk is within valid range (1-100)."""
-        if v < 1:
-            raise ValueError("topk must be at least 1")
-        if v > 100:
-            raise ValueError("topk cannot exceed 100")
-        return v
+    def validate_sort(cls, v: str) -> str:
+        """Normalize sort field."""
+        return v.strip()
+    
+    def get_sort_field(self) -> str:
+        """Get the field name without the - prefix."""
+        return self.sort.lstrip("-")
+    
+    def is_descending(self) -> bool:
+        """Check if sort is descending (starts with -)."""
+        return self.sort.startswith("-")
     
     def is_semantic_enabled(self) -> bool:
         """Check if this request has semantic search enabled."""
         return self.semantic
-    
-    def get_effective_sort_field(self) -> SortField:
-        """
-        Get the effective sort field.
-        
-        If sort_by is RELEVANCE but no search is being performed
-        (empty query edge case), fall back to CREATED_AT.
-        """
-        return self.sort_by
-
-
-# Example usage
-SEARCH_REQUEST_EXAMPLES = [
-    SearchRequest(query="authentication error"),
-    SearchRequest(
-        query="CORS configuration",
-        semantic=True,
-        filters=SearchFilter(severity=Severity.HIGH),
-        topk=20
-    ),
-    SearchRequest(
-        query="memory leak in production",
-        semantic=True,
-        filters=SearchFilter(
-            repo="ejacklab/*",
-            status=Status.OPEN
-        ),
-        topk=50,
-        sort_by=SortField.CREATED_AT,
-        sort_order=SortOrder.DESC
-    ),
-]
 ```
 
 ---
 
-## 3. SearchResult
+## 3. SearchHit
 
-Single search hit representing one matching ticket.
+Single search result representing one matching ticket.
 
 ```python
-# Type alias for match type (not an enum, uses Literal)
-MatchType = Literal["bm25", "semantic", "hybrid"]
+# Type alias for source (not an enum, uses Literal)
+Source = Literal["bm25", "semantic", "hybrid"]
 
 
-class SearchResult(BaseModel):
+class SearchHit(BaseModel):
     """
-    A single search result containing a matching ticket and its relevance metadata.
+    A single search result.
     
     Score Type and Range:
-    - Type: float
+    - Type: float (double)
     - Range: 0.0 to 1.0 (inclusive)
-    - 0.0 = no relevance, 1.0 = perfect match
+    - 0.0 = no relevance, higher = better match
     - For hybrid search, score is normalized fusion score from BM25 + semantic
     
-    The `match_type` indicates which search method(s) produced this result:
+    The `source` indicates which search method(s) produced this result:
     - "bm25": Matched via BM25 keyword search only
     - "semantic": Matched via dense embedding (semantic) search only  
-    - "hybrid": Matched via both BM25 and semantic search (best of both)
+    - "hybrid": Matched via both BM25 and semantic search
     
     Examples:
-        >>> SearchResult(
-        ...     ticket=ticket_response,
+        >>> SearchHit(
+        ...     ticket_id="C1",
         ...     score=0.89,
-        ...     match_type="hybrid"
+        ...     source="hybrid",
+        ...     highlight="The API allows wildcard CORS origins..."
         ... )
     """
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "ticket": {
-                    "id": "S42",
-                    "title": "CORS wildcard allows any origin",
-                    "repo": "ejacklab/open-dsearch",
-                    "owner": "ejacklab",
-                    "category": "security",
-                    "severity": "critical",
-                    "status": "open",
-                    "description": "The CORS configuration uses wildcard...",
-                    "created_at": "2024-01-15T10:30:00Z",
-                    "updated_at": "2024-01-15T10:30:00Z",
-                    "tags": ["cors", "security"],
-                    "fix": None
-                },
+                "ticket_id": "C1",
                 "score": 0.89,
-                "match_type": "hybrid"
+                "source": "hybrid",
+                "bm25_score": 3.45,
+                "semantic_score": 0.92,
+                "highlight": "The API allows wildcard CORS origins..."
             }
         }
     )
     
-    ticket: dict[str, Any] = Field(
-        ...,  # required - in practice this is TicketResponse from stage2
-        description="The matching ticket data. Full TicketResponse object with all fields."
+    ticket_id: str = Field(
+        ...,  # required
+        description="Matching ticket ID",
+        examples=["C1", "S42", "F12"]
     )
     score: float = Field(
         ...,  # required
         ge=0.0,
-        le=1.0,
-        description="Relevance score between 0.0 (least relevant) and 1.0 (most relevant). "
-                    "Higher scores indicate better matches. For hybrid search, this is the "
-                    "normalized fusion score combining BM25 and semantic similarity."
+        description="Fused relevance score (higher = more relevant)"
     )
-    match_type: MatchType = Field(
+    source: Source = Field(
         ...,  # required
-        description="Indicates which search method(s) found this ticket: "
-                    "'bm25' = keyword match only, "
-                    "'semantic' = embedding similarity only, "
-                    "'hybrid' = both methods matched this ticket"
+        description="Which search method produced this ranking"
+    )
+    bm25_score: Optional[float] = Field(
+        default=None,
+        description="BM25 score component (only in explain mode)"
+    )
+    semantic_score: Optional[float] = Field(
+        default=None,
+        description="Cosine similarity score (only in explain mode)"
+    )
+    highlight: Optional[str] = Field(
+        default=None,
+        description="Best matching snippet from ticket content",
+        examples=["The API allows wildcard CORS origins..."]
     )
     
     @field_validator("score")
     @classmethod
     def validate_score_range(cls, v: float) -> float:
-        """Ensure score is within 0.0-1.0 range and round to avoid floating point noise."""
-        if not 0.0 <= v <= 1.0:
-            raise ValueError(f"Score must be between 0.0 and 1.0, got {v}")
-        return round(v, 6)  # Round to 6 decimal places
-    
-    @field_validator("match_type", mode="before")
-    @classmethod
-    def validate_match_type(cls, v: str) -> MatchType:
-        """Ensure match_type is one of the allowed values."""
-        allowed = {"bm25", "semantic", "hybrid"}
-        if v not in allowed:
-            raise ValueError(
-                f"Invalid match_type '{v}'. Must be one of: {', '.join(sorted(allowed))}"
-            )
-        return v  # type: ignore
+        """Round score to avoid floating point noise."""
+        return round(v, 6)
     
     def is_hybrid_match(self) -> bool:
         """Check if this result was found by both search methods."""
-        return self.match_type == "hybrid"
+        return self.source == "hybrid"
     
     def is_high_confidence(self, threshold: float = 0.8) -> bool:
         """Check if this result has high confidence (score >= threshold)."""
         return self.score >= threshold
-
-
-# Example usage (with placeholder ticket data)
-SEARCH_RESULT_EXAMPLE = SearchResult(
-    ticket={
-        "id": "S42",
-        "title": "CORS wildcard allows any origin",
-        "repo": "ejacklab/open-dsearch",
-        "owner": "ejacklab",
-        "category": "security",
-        "severity": "critical",
-        "status": "open",
-        "description": "The CORS configuration uses wildcard...",
-        "created_at": "2024-01-15T10:30:00Z",
-        "updated_at": "2024-01-15T10:30:00Z",
-        "tags": ["cors", "security"],
-        "fix": None
-    },
-    score=0.89,
-    match_type="hybrid"
-)
 ```
 
 ---
 
-## 4. SearchResponse
+## 4. SearchMeta
+
+Metadata about the search execution.
+
+```python
+class SearchMeta(BaseModel):
+    """
+    Search execution metadata.
+    
+    Provides information about how the search was executed,
+    including weights used for fusion, timing, and request tracing.
+    """
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "bm25_weight": 0.6,
+                "semantic_weight": 0.4,
+                "latency_ms": 45,
+                "semantic_used": True,
+                "request_id": "req_abc123"
+            }
+        }
+    )
+    
+    bm25_weight: Optional[float] = Field(
+        default=None,
+        description="BM25 weight used in fusion",
+        examples=[0.6]
+    )
+    semantic_weight: Optional[float] = Field(
+        default=None,
+        description="Semantic weight used in fusion",
+        examples=[0.4]
+    )
+    latency_ms: Optional[int] = Field(
+        default=None,
+        description="Search execution time in milliseconds"
+    )
+    semantic_used: Optional[bool] = Field(
+        default=None,
+        description="Whether semantic search was active"
+    )
+    request_id: Optional[str] = Field(
+        default=None,
+        description="Unique request identifier for tracing",
+        examples=["req_abc123"]
+    )
+```
+
+---
+
+## 5. SearchResult
 
 Full search response returned by POST /search.
 
 ```python
-class SearchResponse(BaseModel):
+class SearchResult(BaseModel):
     """
-    Complete response from the search endpoint.
+    Search response with hits and metadata.
     
     Contains the matching results, total count, and metadata about the query
-    execution. The `took_ms` field helps diagnose performance issues.
+    execution.
     
     Examples:
         >>> # Successful search with results
-        >>> SearchResponse(
-        ...     results=[result1, result2],
-        ...     total=42,
+        >>> SearchResult(
         ...     query="CORS error",
-        ...     semantic_used=True,
-        ...     topk=10,
-        ...     took_ms=45.2
+        ...     hits=[hit1, hit2],
+        ...     total=42,
+        ...     meta=SearchMeta(
+        ...         bm25_weight=0.6,
+        ...         semantic_weight=0.4,
+        ...         latency_ms=45,
+        ...         semantic_used=True
+        ...     )
         ... )
         
         >>> # Empty search results
-        >>> SearchResponse(
-        ...     results=[],
-        ...     total=0,
+        >>> SearchResult(
         ...     query="xyznonexistent",
-        ...     semantic_used=False,
-        ...     topk=10,
-        ...     took_ms=12.5
+        ...     hits=[],
+        ...     total=0,
+        ...     meta=SearchMeta(semantic_used=False, latency_ms=12)
         ... )
     """
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "results": [
+                "query": "authentication failure",
+                "hits": [
                     {
-                        "ticket": {
-                            "id": "S42",
-                            "title": "CORS wildcard allows any origin",
-                            "repo": "ejacklab/open-dsearch",
-                            "severity": "critical",
-                            "status": "open"
-                        },
-                        "score": 0.95,
-                        "match_type": "hybrid"
+                        "ticket_id": "C1",
+                        "score": 0.89,
+                        "source": "hybrid",
+                        "highlight": "The API allows wildcard CORS origins..."
                     },
                     {
-                        "ticket": {
-                            "id": "A17",
-                            "title": "Authentication bypass in CORS preflight",
-                            "repo": "ejacklab/vtic",
-                            "severity": "high",
-                            "status": "in_progress"
-                        },
-                        "score": 0.78,
-                        "match_type": "bm25"
+                        "ticket_id": "C5",
+                        "score": 0.72,
+                        "source": "hybrid",
+                        "highlight": "Authentication fails after password reset..."
                     }
                 ],
-                "total": 2,
-                "query": "CORS authentication",
-                "semantic_used": True,
-                "topk": 10,
-                "took_ms": 45.2
+                "total": 15,
+                "meta": {
+                    "bm25_weight": 0.6,
+                    "semantic_weight": 0.4,
+                    "latency_ms": 45,
+                    "semantic_used": True
+                }
             }
         }
     )
     
-    results: list[SearchResult] = Field(
+    query: str = Field(
+        ...,  # required
+        description="The original query string"
+    )
+    hits: list[SearchHit] = Field(
         default_factory=list,
-        description="List of search results, ordered by relevance score (highest first). "
-                    "May be empty if no tickets match the query."
+        description="Matching tickets ranked by relevance"
     )
     total: int = Field(
         ...,  # required
         ge=0,
-        description="Total number of tickets matching the query and filters. "
-                    "This is the count before topk pagination is applied."
+        description="Total matching tickets (before limit/offset)"
     )
-    query: str = Field(
-        ...,  # required
-        description="The original search query (echoed back for client reference)"
+    meta: Optional[SearchMeta] = Field(
+        default=None,
+        description="Search execution metadata"
     )
-    semantic_used: bool = Field(
-        ...,  # required
-        description="Whether semantic/embedding search was actually used. "
-                    "May be False even if requested if no embedding provider is configured."
-    )
-    topk: int = Field(
-        ...,  # required
-        ge=1,
-        le=100,
-        description="The topk value used for this search (echoed back)"
-    )
-    took_ms: float = Field(
-        ...,  # required
-        ge=0.0,
-        description="Query execution time in milliseconds. Includes BM25 search, "
-                    "optional semantic search, filtering, and result serialization."
-    )
-    
-    @field_validator("total")
-    @classmethod
-    def validate_total(cls, v: int) -> int:
-        """Ensure total is non-negative."""
-        if v < 0:
-            raise ValueError("Total cannot be negative")
-        return v
-    
-    @field_validator("took_ms")
-    @classmethod
-    def validate_took_ms(cls, v: float) -> float:
-        """Ensure took_ms is non-negative and round to 3 decimal places."""
-        if v < 0:
-            raise ValueError("took_ms cannot be negative")
-        return round(v, 3)
-    
-    @field_validator("results")
-    @classmethod
-    def validate_results_sorted(cls, v: list[SearchResult]) -> list[SearchResult]:
-        """Verify results are sorted by score (descending)."""
-        # This is a soft validation - results should be sorted but we don't reject
-        # Note: In production, this could log a warning if unsorted
-        return v
     
     def has_results(self) -> bool:
         """Check if any results were returned."""
-        return len(self.results) > 0
+        return len(self.hits) > 0
     
-    def get_hybrid_matches(self) -> list[SearchResult]:
+    def get_hybrid_matches(self) -> list[SearchHit]:
         """Get only results that matched via hybrid search."""
-        return [r for r in self.results if r.is_hybrid_match()]
+        return [h for h in self.hits if h.is_hybrid_match()]
     
-    def get_high_confidence_results(self, threshold: float = 0.8) -> list[SearchResult]:
+    def get_high_confidence_results(self, threshold: float = 0.8) -> list[SearchHit]:
         """Get results with score >= threshold."""
-        return [r for r in self.results if r.is_high_confidence(threshold)]
+        return [h for h in self.hits if h.is_high_confidence(threshold)]
+```
+
+---
+
+## 6. SuggestResult
+
+Response for `/search/suggest` endpoint.
+
+```python
+class SuggestResult(BaseModel):
+    """
+    Autocomplete suggestion result.
     
-    def to_paginated_response(self, offset: int = 0) -> dict[str, Any]:
-        """
-        Convert to a paginated response format with metadata.
-        
-        Returns:
-            Dict with results, pagination info, and query metadata.
-        """
-        return {
-            "data": [r.model_dump() for r in self.results],
-            "meta": {
-                "query": self.query,
-                "total": self.total,
-                "returned": len(self.results),
-                "semantic_used": self.semantic_used,
-                "took_ms": self.took_ms,
-                "pagination": {
-                    "offset": offset,
-                    "limit": self.topk,
-                    "has_more": self.total > offset + len(self.results)
-                }
+    Used for typeahead suggestions based on partial query input.
+    Returns matching ticket titles or phrases with counts.
+    """
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "suggestion": "CORS wildcard issue",
+                "ticket_count": 3
             }
         }
-
-
-# Example responses
-SEARCH_RESPONSE_EXAMPLES = {
-    "with_results": SearchResponse(
-        results=[
-            SearchResult(
-                ticket={
-                    "id": "S42",
-                    "title": "CORS wildcard allows any origin",
-                    "repo": "ejacklab/open-dsearch",
-                    "owner": "ejacklab",
-                    "category": "security",
-                    "severity": "critical",
-                    "status": "open",
-                    "description": "The CORS configuration...",
-                    "created_at": "2024-01-15T10:30:00Z",
-                    "updated_at": "2024-01-15T10:30:00Z",
-                    "tags": ["cors", "security"],
-                    "fix": None
-                },
-                score=0.95,
-                match_type="hybrid"
-            ),
-            SearchResult(
-                ticket={
-                    "id": "A17",
-                    "title": "Authentication bypass in CORS preflight",
-                    "repo": "ejacklab/vtic",
-                    "owner": "ejacklab",
-                    "category": "auth",
-                    "severity": "high",
-                    "status": "in_progress",
-                    "description": "The preflight request...",
-                    "created_at": "2024-02-10T14:20:00Z",
-                    "updated_at": "2024-02-11T09:15:00Z",
-                    "tags": ["cors", "auth"],
-                    "fix": "Validate origin header"
-                },
-                score=0.78,
-                match_type="bm25"
-            )
-        ],
-        total=2,
-        query="CORS authentication",
-        semantic_used=True,
-        topk=10,
-        took_ms=45.234
-    ),
-    "empty": SearchResponse(
-        results=[],
-        total=0,
-        query="xyznonexistentticket12345",
-        semantic_used=False,
-        topk=10,
-        took_ms=12.5
-    ),
-    "semantic_disabled": SearchResponse(
-        results=[
-            SearchResult(
-                ticket={
-                    "id": "P5",
-                    "title": "Database connection pool exhausted",
-                    "repo": "ejacklab/open-dsearch",
-                    "severity": "medium",
-                    "status": "open"
-                },
-                score=0.82,
-                match_type="bm25"
-            )
-        ],
-        total=1,
-        query="database connection",
-        semantic_used=False,
-        topk=10,
-        took_ms=8.123
     )
-}
+    
+    suggestion: str = Field(
+        ...,  # required
+        description="Suggested ticket title or phrase"
+    )
+    ticket_count: int = Field(
+        ...,  # required
+        ge=0,
+        description="Number of tickets matching this suggestion"
+    )
+
+
+# The /search/suggest endpoint returns a list of SuggestResult
+# GET /search/suggest?q=cors&limit=5
+# Response: list[SuggestResult]
 ```
 
 ---
@@ -811,25 +606,24 @@ SEARCH_RESPONSE_EXAMPLES = {
 
 | Model | Purpose | Key Fields |
 |-------|---------|------------|
-| `SearchFilter` | Structured filters | severity, status, category, repo (glob), created_*, updated_* |
-| `SearchRequest` | POST /search body | query, semantic, filters, topk (1-100), sort_by, sort_order |
-| `SearchResult` | Single hit | ticket, score (0.0-1.0), match_type (bm25/semantic/hybrid) |
-| `SearchResponse` | Full response | results, total, query, semantic_used, topk, took_ms |
+| `FilterSet` | Structured filters | severity[], status[], category[], repo[], tags[], assignee, created_*, updated_* |
+| `SearchQuery` | POST /search body | query, semantic, filters, limit, offset, sort, min_score |
+| `SearchHit` | Single hit | ticket_id (string), score, source (not match_type), highlight |
+| `SearchMeta` | Execution metadata | bm25_weight, semantic_weight, latency_ms, semantic_used, request_id |
+| `SearchResult` | Full response | query, hits[], total, meta |
+| `SuggestResult` | Autocomplete | suggestion, ticket_count |
 
 ---
 
 ## Cross-Reference with Stage 2 (Ticket Models)
 
-The `ticket` field in `SearchResult` contains a `TicketResponse` object from Stage 2. Key shared types:
+Key shared types:
 
-| Stage 2 Type | Used In Stage 3 |
+| Stage 1 Type | Used In Stage 3 |
 |--------------|-----------------|
-| `Severity` | `SearchFilter.severity` |
-| `Status` | `SearchFilter.status` |
-| `Category` | `SearchFilter.category` |
-| `TicketResponse` | `SearchResult.ticket` (as dict) |
-
-Note: In the actual implementation, `SearchResult.ticket` would be typed as `TicketResponse`, but for documentation purposes it's shown as `dict[str, Any]` to avoid circular imports.
+| `Severity` | `FilterSet.severity[]` |
+| `Status` | `FilterSet.status[]` |
+| `Category` | `FilterSet.category[]` |
 
 ---
 
@@ -844,12 +638,20 @@ Note: In the actual implementation, `SearchResult.ticket` would be typed as `Tic
 
 # Response
 {
-    "results": [...],
-    "total": 15,
     "query": "CORS error authentication",
-    "semantic_used": false,
-    "topk": 10,
-    "took_ms": 23.4
+    "hits": [
+        {
+            "ticket_id": "C1",
+            "score": 0.89,
+            "source": "bm25",
+            "highlight": "The API allows wildcard CORS origins..."
+        }
+    ],
+    "total": 15,
+    "meta": {
+        "latency_ms": 23,
+        "semantic_used": false
+    }
 }
 ```
 
@@ -860,15 +662,17 @@ Note: In the actual implementation, `SearchResult.ticket` would be typed as `Tic
     "query": "database connection timeout issues",
     "semantic": true,
     "filters": {
-        "severity": "critical",
-        "status": "open",
-        "repo": "ejacklab/*"
+        "severity": ["critical", "high"],
+        "status": ["open"],
+        "repo": ["ejacklab/*"]
     },
-    "topk": 20
+    "limit": 20,
+    "offset": 0,
+    "min_score": 0.1
 }
 ```
 
-### Example 3: Date range filtered search
+### Example 3: Sorting and pagination
 ```python
 # POST /search
 {
@@ -876,12 +680,24 @@ Note: In the actual implementation, `SearchResult.ticket` would be typed as `Tic
     "filters": {
         "created_after": "2024-01-01T00:00:00Z",
         "created_before": "2024-06-30T23:59:59Z",
-        "category": "performance"
+        "category": ["performance"]
     },
-    "sort_by": "created_at",
-    "sort_order": "desc",
-    "topk": 50
+    "sort": "-created",
+    "limit": 50,
+    "offset": 100
 }
+```
+
+### Example 4: Autocomplete suggestions
+```python
+# GET /search/suggest?q=cors&limit=5
+
+# Response (list of SuggestResult)
+[
+    {"suggestion": "CORS wildcard issue", "ticket_count": 3},
+    {"suggestion": "CORS configuration error", "ticket_count": 2},
+    {"suggestion": "CORS preflight timeout", "ticket_count": 1}
+]
 ```
 
 ---
@@ -890,20 +706,33 @@ Note: In the actual implementation, `SearchResult.ticket` would be typed as `Tic
 
 ```python
 # Invalid repo pattern
-SearchFilter(repo="invalid")  # ValueError: Must be in 'owner/repo' format
+FilterSet(repo=["invalid"])  # ValueError: Must be in 'owner/repo' format
 
 # Empty query
-SearchRequest(query="   ")  # ValueError: Query cannot be empty
+SearchQuery(query="   ")  # ValueError: Query cannot be empty
 
-# topk out of range  
-SearchRequest(query="test", topk=200)  # ValueError: topk cannot exceed 100
+# limit out of range  
+SearchQuery(query="test", limit=200)  # ValidationError: limit <= 100
 
-# Invalid match_type
-SearchResult(ticket={}, score=0.5, match_type="invalid")  # ValueError
-
-# Score out of range
-SearchResult(ticket={}, score=1.5, match_type="bm25")  # ValueError: Score must be 0.0-1.0
+# Invalid sort pattern
+SearchQuery(query="test", sort="score!")  # ValidationError: must match pattern
 ```
+
+---
+
+## Key Changes from Previous Version
+
+### Breaking Changes:
+1. **`SearchRequest` → `SearchQuery`**: Model renamed to match OpenAPI spec
+2. **`topk` → `limit`**: Renamed, default changed from 10 to 20
+3. **`offset` added**: New pagination field (default: 0)
+4. **`sort_by`/`sort_order` → `sort`**: Combined into single string with `-` prefix
+5. **`min_score` added**: New threshold field (default: 0.0)
+6. **`SearchResult` (hit) → `SearchHit`**: Renamed, uses `ticket_id` string instead of `ticket` object
+7. **`match_type` → `source`**: Field renamed
+8. **`results` → `hits`**: Field renamed in SearchResult response
+9. **`FilterSet` arrays**: Multi-select fields now use arrays instead of single values
+10. **`SuggestResult` added**: New model for autocomplete endpoint
 
 ---
 
@@ -911,10 +740,12 @@ SearchResult(ticket={}, score=1.5, match_type="bm25")  # ValueError: Score must 
 
 1. **Enum Imports**: All enums are imported from Stage 1 (`enums.py`). Do not redefine them here.
 
-2. **MatchType as Literal**: `match_type` uses `Literal["bm25", "semantic", "hybrid"]` rather than an enum, as it's specific to search results and not shared across modules.
+2. **Source as Literal**: `source` uses `Literal["bm25", "semantic", "hybrid"]` rather than an enum.
 
 3. **Score Normalization**: Hybrid search scores are normalized to 0.0-1.0 using Reciprocal Rank Fusion (RRF).
 
-4. **Timestamp Field Names**: Use `created_at` and `updated_at` (with `_at` suffix) to match Stage 2 ticket models.
+4. **Sort Format**: Sort field uses `-` prefix for descending (e.g., `-score`, `-created`, `updated`).
 
-5. **Zvec Filter Conversion**: The `to_zvec_filter()` method generates filter expressions compatible with Zvec's query syntax.
+5. **FilterSet Arrays**: All multi-select filters (severity, status, category, repo, tags) use arrays.
+
+6. **SearchMeta**: New nested object for execution metadata (weights, latency, request_id).

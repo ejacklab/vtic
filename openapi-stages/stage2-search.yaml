@@ -1,606 +1,243 @@
-# Stage 2: Search and System Endpoints
-# These paths will be merged into the main OpenAPI spec
+# Stage 2: Search Operations
+# Canonical reference extracted from openapi.yaml
 
 paths:
   /search:
     post:
-      tags:
-        - Search
+      tags: [Search]
       summary: Hybrid search for tickets
-      description: |
-        Perform hybrid BM25 + semantic search across all tickets.
-        Returns ranked results with relevance scores. Use filters to narrow results
-        by severity, status, category, repo, or date ranges.
       operationId: searchTickets
       parameters:
-        - $ref: "stage1-foundation.yaml#/components/parameters/explainParam"
+        - $ref: '#/components/parameters/explainParam'
       requestBody:
         required: true
-        description: Search query with optional filters and pagination
         content:
           application/json:
             schema:
-              $ref: "stage1-foundation.yaml#/components/schemas/SearchQuery"
-            examples:
-              basic:
-                summary: Basic keyword search
-                value:
-                  query: "CORS authentication error"
-              semantic:
-                summary: Semantic search enabled
-                value:
-                  query: "login issues after password change"
-                  semantic: true
-                  limit: 10
-              filtered:
-                summary: Search with filters
-                value:
-                  query: "API timeout"
-                  filters:
-                    severity:
-                      - critical
-                      - high
-                    status:
-                      - open
-                      - in_progress
-                    repo:
-                      - ejacklab/open-dsearch
-                  limit: 20
-                  offset: 0
+              $ref: '#/components/schemas/SearchQuery'
       responses:
-        "200":
+        '200':
           description: Search completed successfully
           content:
             application/json:
               schema:
-                $ref: "stage1-foundation.yaml#/components/schemas/SearchResult"
-              examples:
-                results:
-                  summary: Search results with hits
-                  value:
-                    query: "authentication failure"
-                    hits:
-                      - ticket_id: "C1"
-                        score: 0.89
-                        source: "hybrid"
-                        highlight: "The API allows wildcard CORS origins..."
-                      - ticket_id: "C5"
-                        score: 0.72
-                        source: "hybrid"
-                        highlight: "Authentication fails after password reset..."
-                    total: 15
-                    meta:
-                      bm25_weight: 0.6
-                      semantic_weight: 0.4
-                      latency_ms: 45
-                      semantic_used: true
-        "400":
+                $ref: '#/components/schemas/SearchResult'
+        '400':
           description: Invalid request - empty or missing query
           content:
             application/json:
               schema:
-                $ref: "stage1-foundation.yaml#/components/schemas/ErrorResponse"
-              examples:
-                empty_query:
-                  summary: Empty query string
-                  value:
-                    error:
-                      code: "VALIDATION_ERROR"
-                      message: "Query string cannot be empty"
-                      details:
-                        - field: "query"
-                          message: "Required field is missing or empty"
-        "503":
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
           description: Semantic search requested but no embedding provider configured
           content:
             application/json:
               schema:
-                $ref: "stage1-foundation.yaml#/components/schemas/ErrorResponse"
-              examples:
-                no_provider:
-                  summary: No embedding provider available
-                  value:
-                    error:
-                      code: "SERVICE_UNAVAILABLE"
-                      message: "Semantic search requested but no embedding provider is configured"
-                      details:
-                        - field: "semantic"
-                          message: "Set 'semantic: false' or configure an embedding provider"
-                      docs: "https://vtic.ejai.ai/docs/semantic-search"
+                $ref: '#/components/schemas/ErrorResponse'
 
   /search/suggest:
     get:
-      tags:
-        - Search
+      tags: [Search]
       summary: Get auto-complete suggestions
-      description: |
-        Typeahead suggestions for ticket titles based on partial query input.
-        Returns matching ticket titles with counts for building autocomplete UI.
       operationId: suggestSearch
       parameters:
         - name: q
           in: query
           required: true
-          description: Partial query string (minimum 2 characters)
           schema:
             type: string
             minLength: 2
             maxLength: 100
-          examples:
-            partial:
-              value: "cors"
         - name: limit
           in: query
-          required: false
-          description: Maximum number of suggestions to return
           schema:
             type: integer
             minimum: 1
             maximum: 20
             default: 5
-          examples:
-            default:
-              value: 5
       responses:
-        "200":
+        '200':
           description: Suggestions retrieved successfully
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  type: object
-                  required:
-                    - suggestion
-                    - ticket_count
-                  properties:
-                    suggestion:
-                      type: string
-                      description: Suggested ticket title or phrase
-                    ticket_count:
-                      type: integer
-                      description: Number of tickets matching this suggestion
-              examples:
-                suggestions:
-                  summary: Autocomplete suggestions
-                  value:
-                    - suggestion: "CORS wildcard issue"
-                      ticket_count: 3
-                    - suggestion: "CORS configuration error"
-                      ticket_count: 2
-                    - suggestion: "CORS preflight timeout"
-                      ticket_count: 1
-        "400":
-          description: Invalid query parameter
-          content:
-            application/json:
-              schema:
-                $ref: "stage1-foundation.yaml#/components/schemas/ErrorResponse"
-              examples:
-                too_short:
-                  summary: Query too short
-                  value:
-                    error:
-                      code: "VALIDATION_ERROR"
-                      message: "Query must be at least 2 characters"
+                  $ref: '#/components/schemas/SuggestionItem'
 
-  /stats:
-    get:
-      tags:
-        - Management
-      summary: Get ticket statistics
-      description: |
-        Aggregate statistics about tickets including counts by status, severity,
-        and category. Optionally group by repository.
-      operationId: getStats
-      parameters:
-        - name: by_repo
-          in: query
-          required: false
-          description: Include per-repository breakdown in response
-          schema:
-            type: boolean
-            default: false
-        - name: severity
-          in: query
-          required: false
-          description: Filter stats by severity level(s)
-          schema:
-            type: array
-            items:
-              $ref: "stage1-foundation.yaml#/components/schemas/Severity"
-          style: form
-          explode: false
-        - name: status
-          in: query
-          required: false
-          description: Filter stats by status value(s)
-          schema:
-            type: array
-            items:
-              $ref: "stage1-foundation.yaml#/components/schemas/Status"
-          style: form
-          explode: false
-        - name: category
-          in: query
-          required: false
-          description: Filter stats by category(ies)
-          schema:
-            type: array
-            items:
-              $ref: "stage1-foundation.yaml#/components/schemas/Category"
-          style: form
-          explode: false
-      responses:
-        "200":
-          description: Statistics retrieved successfully
-          content:
-            application/json:
-              schema:
-                $ref: "stage1-foundation.yaml#/components/schemas/StatsResponse"
-              examples:
-                basic:
-                  summary: Basic statistics
-                  value:
-                    totals:
-                      all: 82
-                      open: 23
-                      closed: 59
-                    by_status:
-                      open: 15
-                      in_progress: 8
-                      blocked: 2
-                      fixed: 42
-                      wont_fix: 3
-                      closed: 12
-                    by_severity:
-                      critical: 2
-                      high: 10
-                      medium: 35
-                      low: 25
-                      info: 10
-                    by_category:
-                      crash: 8
-                      hotfix: 5
-                      feature: 22
-                      security: 12
-                      general: 35
-                    by_repo: null
-                with_repos:
-                  summary: Statistics with repo breakdown
-                  value:
-                    totals:
-                      all: 82
-                      open: 23
-                      closed: 59
-                    by_status:
-                      open: 15
-                      in_progress: 8
-                      fixed: 42
-                    by_severity:
-                      critical: 2
-                      high: 10
-                      medium: 35
-                    by_category:
-                      crash: 8
-                      hotfix: 5
-                      feature: 22
-                    by_repo:
-                      ejacklab/open-dsearch: 45
-                      ejacklab/vtic: 25
-                      ejacklab/zvec: 12
+components:
+  parameters:
+    explainParam:
+      name: explain
+      in: query
+      schema:
+        type: boolean
+        default: false
+      description: Show scoring breakdown per result
 
-  /health:
-    get:
-      tags:
-        - System
-      summary: Health check endpoint
-      description: |
-        Returns system health status including index availability,
-        embedding provider status, and basic diagnostics.
-        Used for monitoring and load balancer health checks.
-      operationId: getHealth
-      responses:
-        "200":
-          description: System health status
-          content:
-            application/json:
-              schema:
-                $ref: "stage1-foundation.yaml#/components/schemas/HealthResponse"
-              examples:
-                healthy:
-                  summary: Healthy system
-                  value:
-                    status: "healthy"
-                    version: "0.1.0"
-                    uptime_seconds: 86400
-                    index_status:
-                      zvec: "available"
-                      ticket_count: 82
-                      last_reindex: "2026-03-17T08:00:00Z"
-                    embedding_provider:
-                      name: "local"
-                      model: "all-MiniLM-L6-v2"
-                      dimension: 384
-                degraded:
-                  summary: Degraded - no embedding provider
-                  value:
-                    status: "degraded"
-                    version: "0.1.0"
-                    uptime_seconds: 3600
-                    index_status:
-                      zvec: "available"
-                      ticket_count: 82
-                      last_reindex: "2026-03-17T08:00:00Z"
-                    embedding_provider:
-                      name: "none"
-                      model: null
-                      dimension: null
-                unhealthy:
-                  summary: Unhealthy - index corrupted
-                  value:
-                    status: "unhealthy"
-                    version: "0.1.0"
-                    uptime_seconds: 120
-                    index_status:
-                      zvec: "corrupted"
-                      ticket_count: 0
-                      last_reindex: null
-                    embedding_provider:
-                      name: "none"
-                      model: null
-                      dimension: null
+  schemas:
+    SearchQuery:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 500
+        semantic:
+          type: boolean
+          default: false
+        filters:
+          $ref: '#/components/schemas/FilterSet'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
+        sort:
+          type: string
+          default: -score
+          enum: [score, -score, created, -created, updated, -updated, severity, -severity]
+        min_score:
+          type: [number, 'null']
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.0
 
-  /openapi.json:
-    get:
-      tags:
-        - System
-      summary: OpenAPI specification
-      description: |
-        Returns the complete OpenAPI 3.1.1 specification for this API.
-        Use for API documentation, client generation, and exploration.
-      operationId: getOpenApiSpec
-      responses:
-        "200":
-          description: OpenAPI specification in JSON format
-          content:
-            application/json:
-              schema:
+    FilterSet:
+      type: object
+      properties:
+        severity:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/Severity'
+        status:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/Status'
+        repo:
+          type: [array, 'null']
+          items:
+            type: string
+        category:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/Category'
+        assignee:
+          type: [string, 'null']
+        tags:
+          type: [array, 'null']
+          items:
+            type: string
+        created_after:
+          type: [string, 'null']
+          format: date-time
+        created_before:
+          type: [string, 'null']
+          format: date-time
+        updated_after:
+          type: [string, 'null']
+          format: date-time
+
+    SearchHit:
+      type: object
+      required: [ticket_id, score, source]
+      properties:
+        ticket_id:
+          type: string
+        score:
+          type: number
+          format: double
+          minimum: 0
+        source:
+          type: string
+          enum: [bm25, semantic, hybrid]
+        bm25_score:
+          type: [number, 'null']
+          format: double
+        semantic_score:
+          type: [number, 'null']
+          format: double
+        highlight:
+          type: [string, 'null']
+
+    SearchResult:
+      type: object
+      required: [query, hits, total]
+      properties:
+        query:
+          type: string
+        hits:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchHit'
+        total:
+          type: integer
+        meta:
+          type: object
+          properties:
+            bm25_weight:
+              type: number
+            semantic_weight:
+              type: number
+            latency_ms:
+              type: integer
+            semantic_used:
+              type: boolean
+            request_id:
+              type: string
+        request_id:
+          type: string
+
+    SuggestionItem:
+      type: object
+      required: [suggestion, ticket_count]
+      properties:
+        suggestion:
+          type: string
+        ticket_count:
+          type: integer
+
+    Severity:
+      type: string
+      enum: [critical, high, medium, low, info]
+
+    Status:
+      type: string
+      enum: [open, in_progress, blocked, fixed, wont_fix, closed]
+
+    Category:
+      type: string
+      enum: [crash, hotfix, feature, security, general]
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR, NOT_FOUND, CONFLICT, PAYLOAD_TOO_LARGE, INTERNAL_ERROR, SERVICE_UNAVAILABLE]
+            message:
+              type: string
+            details:
+              type: array
+              items:
                 type: object
-                description: The complete OpenAPI 3.1.1 specification
-
-  /reindex:
-    post:
-      tags:
-        - Management
-      summary: Rebuild search index
-      description: |
-        Rebuild the Zvec search index from markdown ticket files.
-        Can target a single ticket or all tickets. Use force to re-index
-        unchanged tickets. Optionally override the embedding provider.
-      operationId: reindex
-      requestBody:
-        required: false
-        description: Reindex options
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ticket_id:
-                  type: string
-                  pattern: "^[CFGHST]\\d+$"
-                  description: |
-                    Single ticket ID to reindex. If omitted, reindexes all tickets.
-                  examples:
-                    single:
-                      value: "C1"
-                force:
-                  type: boolean
-                  default: false
-                  description: |
-                    Force reindex even if ticket hasn't changed (re-embeds content).
-                provider:
-                  type: string
-                  description: |
-                    Override embedding provider for this reindex operation.
-                    One of: local, openai, custom, none.
-                  enum:
-                    - local
-                    - openai
-                    - custom
-                    - none
-            examples:
-              all:
-                summary: Reindex all tickets
-                value: {}
-              single:
-                summary: Reindex single ticket
-                value:
-                  ticket_id: "C1"
-              force_reembed:
-                summary: Force re-embed all tickets
-                value:
-                  force: true
-              override_provider:
-                summary: Use different embedding provider
-                value:
-                  provider: "openai"
-                  force: true
-      responses:
-        "200":
-          description: Reindex completed successfully
-          content:
-            application/json:
-              schema:
-                $ref: "stage1-foundation.yaml#/components/schemas/ReindexResult"
-              examples:
-                success:
-                  summary: Successful reindex
-                  value:
-                    processed: 80
-                    skipped: 2
-                    failed: 0
-                    duration_ms: 12340
-                    errors: []
-                with_errors:
-                  summary: Reindex with some failures
-                  value:
-                    processed: 78
-                    skipped: 2
-                    failed: 2
-                    duration_ms: 14500
-                    errors:
-                      - ticket_id: "C15"
-                        message: "Failed to generate embedding: API timeout"
-                      - ticket_id: "H3"
-                        message: "Invalid markdown format in frontmatter"
-
-  /doctor:
-    get:
-      tags:
-        - Management
-      summary: Run diagnostic checks
-      description: |
-        Comprehensive system diagnostics including index health, configuration
-        validation, file permissions, and embedding provider connectivity.
-        Returns suggested fixes for any detected issues.
-      operationId: runDiagnostics
-      responses:
-        "200":
-          description: Diagnostic results
-          content:
-            application/json:
-              schema:
-                $ref: "stage1-foundation.yaml#/components/schemas/DoctorResult"
-              examples:
-                all_ok:
-                  summary: All checks passed
-                  value:
-                    overall: "ok"
-                    checks:
-                      - name: "zvec_index"
-                        status: "ok"
-                        message: "Index is healthy with 82 tickets"
-                        fix: null
-                      - name: "config_file"
-                        status: "ok"
-                        message: "Configuration valid"
-                        fix: null
-                      - name: "embedding_provider"
-                        status: "ok"
-                        message: "Local provider using all-MiniLM-L6-v2"
-                        fix: null
-                      - name: "file_permissions"
-                        status: "ok"
-                        message: "All directories writable"
-                        fix: null
-                with_warnings:
-                  summary: Warnings detected
-                  value:
-                    overall: "warnings"
-                    checks:
-                      - name: "zvec_index"
-                        status: "ok"
-                        message: "Index is healthy"
-                        fix: null
-                      - name: "config_file"
-                        status: "warning"
-                        message: "Using deprecated config key 'embeddings.provider'"
-                        fix: "Update to 'embeddings.provider' in vtic.toml"
-                      - name: "embedding_provider"
-                        status: "warning"
-                        message: "No embedding provider configured - semantic search disabled"
-                        fix: "Set embeddings.provider = 'local' in vtic.toml"
-                with_errors:
-                  summary: Errors detected
-                  value:
-                    overall: "errors"
-                    checks:
-                      - name: "zvec_index"
-                        status: "error"
-                        message: "Index file corrupted or missing"
-                        fix: "Run 'vtic reindex' to rebuild the index"
-                      - name: "config_file"
-                        status: "ok"
-                        message: "Configuration valid"
-                        fix: null
-                      - name: "file_permissions"
-                        status: "error"
-                        message: "Cannot write to tickets directory"
-                        fix: "Check permissions on ./tickets/ directory"
-
-  /validate:
-    get:
-      tags:
-        - Management
-      summary: Validate all ticket files
-      description: |
-        Validates all ticket markdown files for correct format, required fields,
-        and data integrity. Returns count of valid/invalid tickets with
-        detailed error messages for any issues found.
-      operationId: validateTickets
-      responses:
-        "200":
-          description: Validation results
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - total
-                  - valid
-                  - invalid
-                  - errors
                 properties:
-                  total:
-                    type: integer
-                    description: Total number of tickets validated
-                  valid:
-                    type: integer
-                    description: Number of tickets that passed validation
-                  invalid:
-                    type: integer
-                    description: Number of tickets with validation errors
-                  errors:
-                    type: array
-                    description: List of validation errors by ticket
-                    items:
-                      type: object
-                      required:
-                        - ticket_id
-                        - errors
-                      properties:
-                        ticket_id:
-                          type: string
-                          description: ID of the ticket with errors
-                        errors:
-                          type: array
-                          description: List of validation error messages
-                          items:
-                            type: string
-              examples:
-                all_valid:
-                  summary: All tickets valid
+                  field:
+                    type: string
+                  message:
+                    type: string
                   value:
-                    total: 82
-                    valid: 82
-                    invalid: 0
-                    errors: []
-                with_errors:
-                  summary: Some tickets have errors
-                  value:
-                    total: 82
-                    valid: 79
-                    invalid: 3
-                    errors:
-                      - ticket_id: "C15"
-                        errors:
-                          - "Missing required field: repo"
-                          - "Invalid severity value: 'urgent' (must be one of: critical, high, medium, low, info)"
-                      - ticket_id: "H3"
-                        errors:
-                          - "Invalid date format in 'created': expected ISO 8601"
-                      - ticket_id: "F22"
-                        errors:
-                          - "Title exceeds maximum length of 200 characters"
+                    type: [string, 'null']
+            docs:
+              type: [string, 'null']

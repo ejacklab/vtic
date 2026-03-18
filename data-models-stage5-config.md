@@ -25,7 +25,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class TicketsConfig(BaseModel):
+class StorageConfig(BaseModel):
     """Configuration for ticket storage.
     
     Attributes:
@@ -51,18 +51,18 @@ class ApiConfig(BaseModel):
     
     Attributes:
         host: Host address to bind the server to.
-            Defaults to "127.0.0.1" for security (localhost only).
+            Defaults to "localhost".
         port: Port number for the server.
             Must be in range 1-65535.
-            Defaults to 8900.
+            Defaults to 8080.
     """
     
     host: str = Field(
-        default="127.0.0.1",
+        default="localhost",
         description="API server host address"
     )
     port: int = Field(
-        default=8900,
+        default=8080,
         ge=1,
         le=65535,
         description="API server port (1-65535)"
@@ -83,19 +83,12 @@ class SearchConfig(BaseModel):
     Attributes:
         bm25_enabled: Whether BM25 keyword search is enabled.
             Always enabled by default (zero config).
-        enable_semantic: Whether semantic (dense embedding) search is enabled.
+        semantic_enabled: Whether semantic (dense embedding) search is enabled.
             Requires an embedding provider when enabled.
-        embedding_provider: Provider for embeddings.
-            Options: "openai" (OpenAI API), "local" (sentence-transformers),
-            "none" (no embeddings, BM25 only).
-        embedding_model: Model name for embeddings.
-            Provider-specific model identifier.
-        embedding_dimensions: Vector dimensions for embeddings.
-            Must match the model's output dimensions.
-        hybrid_weights_bm25: Weight for BM25 scores in hybrid ranking.
-            Range 0.0-1.0. Default 0.7.
-        hybrid_weights_semantic: Weight for semantic scores in hybrid ranking.
-            Range 0.0-1.0. Default 0.3.
+        bm25_weight: Weight for BM25 scores in hybrid ranking.
+            Range 0.0-1.0. Default 0.6.
+        semantic_weight: Weight for semantic scores in hybrid ranking.
+            Range 0.0-1.0. Default 0.4.
             Weights should sum to 1.0 for normalized hybrid scoring.
     """
     
@@ -103,45 +96,24 @@ class SearchConfig(BaseModel):
         default=True,
         description="Enable BM25 keyword search"
     )
-    enable_semantic: bool = Field(
+    semantic_enabled: bool = Field(
         default=False,
         description="Enable semantic/dense embedding search"
     )
-    embedding_provider: Literal["openai", "local", "none"] = Field(
-        default="openai",
-        description="Embedding provider: openai | local | none"
-    )
-    embedding_model: str = Field(
-        default="text-embedding-3-small",
-        description="Embedding model name"
-    )
-    embedding_dimensions: int = Field(
-        default=1536,
-        gt=0,
-        description="Embedding vector dimensions"
-    )
-    hybrid_weights_bm25: float = Field(
-        default=0.7,
+    bm25_weight: float = Field(
+        default=0.6,
         ge=0.0,
         le=1.0,
         description="BM25 weight in hybrid scoring (0.0-1.0)"
     )
-    hybrid_weights_semantic: float = Field(
-        default=0.3,
+    semantic_weight: float = Field(
+        default=0.4,
         ge=0.0,
         le=1.0,
         description="Semantic weight in hybrid scoring (0.0-1.0)"
     )
     
-    @field_validator("embedding_dimensions")
-    @classmethod
-    def _validate_positive_dimensions(cls, v: int) -> int:
-        """Ensure dimensions are positive."""
-        if v <= 0:
-            raise ValueError(f"Embedding dimensions must be positive, got {v}")
-        return v
-    
-    @field_validator("hybrid_weights_bm25", "hybrid_weights_semantic")
+    @field_validator("bm25_weight", "semantic_weight")
     @classmethod
     def _validate_weight_range(cls, v: float) -> float:
         """Ensure weights are within valid range."""
@@ -150,28 +122,60 @@ class SearchConfig(BaseModel):
         return v
     
     @model_validator(mode="after")
-    def _validate_provider_consistency(self) -> SearchConfig:
-        """Validate provider matches enable_semantic flag."""
-        if not self.enable_semantic:
-            # When semantic is disabled, provider should be "none" or ignored
-            return self
-        
-        if self.enable_semantic and self.embedding_provider == "none":
-            raise ValueError(
-                "embedding_provider cannot be 'none' when enable_semantic is true. "
-                "Use 'openai' or 'local' instead."
-            )
-        
-        return self
-    
-    @model_validator(mode="after")
     def _check_weights_sum(self) -> SearchConfig:
         """Warn if weights don't sum to approximately 1.0."""
-        total = self.hybrid_weights_bm25 + self.hybrid_weights_semantic
+        total = self.bm25_weight + self.semantic_weight
         if not 0.99 <= total <= 1.01:  # Allow small floating point variance
             warnings.warn(
                 f"Hybrid weights sum to {total}, expected ~1.0. "
-                f"BM25: {self.hybrid_weights_bm25}, Semantic: {self.hybrid_weights_semantic}",
+                f"BM25: {self.bm25_weight}, Semantic: {self.semantic_weight}",
+                UserWarning,
+                stacklevel=2
+            )
+        return self
+
+
+class EmbeddingsConfig(BaseModel):
+    """Configuration for embedding providers.
+    
+    Attributes:
+        provider: Provider for embeddings.
+            Options: "openai" (OpenAI API), "local" (sentence-transformers),
+            "custom" (user-provided), "none" (no embeddings, BM25 only).
+        model: Model name for embeddings.
+            Provider-specific model identifier.
+        dimension: Vector dimensions for embeddings.
+            Must match the model's output dimensions.
+    """
+    
+    provider: Literal["local", "openai", "custom", "none"] = Field(
+        default="local",
+        description="Embedding provider: local | openai | custom | none"
+    )
+    model: str | None = Field(
+        default=None,
+        description="Embedding model name"
+    )
+    dimension: int | None = Field(
+        default=None,
+        gt=0,
+        description="Embedding vector dimensions"
+    )
+    
+    @field_validator("dimension")
+    @classmethod
+    def _validate_positive_dimensions(cls, v: int | None) -> int | None:
+        """Ensure dimensions are positive if provided."""
+        if v is not None and v <= 0:
+            raise ValueError(f"Embedding dimensions must be positive, got {v}")
+        return v
+    
+    @model_validator(mode="after")
+    def _validate_provider_consistency(self) -> EmbeddingsConfig:
+        """Validate provider settings."""
+        if self.provider == "none" and self.model is not None:
+            warnings.warn(
+                "Embedding model is set but provider is 'none'. Model will be ignored.",
                 UserWarning,
                 stacklevel=2
             )
@@ -182,23 +186,24 @@ class Config(BaseModel):
     """Root configuration for vtic.
     
     This is the top-level configuration object that aggregates
-    all sub-configurations: tickets, api, and search.
+    all sub-configurations: storage, api, search, and embeddings.
     
     Attributes:
-        tickets: Ticket storage configuration.
+        storage: Ticket storage configuration.
         api: API server configuration.
-        search: Search and embedding configuration.
+        search: Search configuration (weights, enabled flags).
+        embeddings: Embedding provider configuration.
     
     Example:
         >>> config = Config()
-        >>> config.tickets.dir
+        >>> config.storage.dir
         PosixPath('tickets')
         >>> config.api.port
-        8900
+        8080
     """
     
-    tickets: TicketsConfig = Field(
-        default_factory=TicketsConfig,
+    storage: StorageConfig = Field(
+        default_factory=StorageConfig,
         description="Ticket storage configuration"
     )
     api: ApiConfig = Field(
@@ -208,6 +213,10 @@ class Config(BaseModel):
     search: SearchConfig = Field(
         default_factory=SearchConfig,
         description="Search configuration"
+    )
+    embeddings: EmbeddingsConfig = Field(
+        default_factory=EmbeddingsConfig,
+        description="Embedding provider configuration"
     )
     
     model_config = {
@@ -220,11 +229,11 @@ class Config(BaseModel):
 EMBEDDING_DEFAULTS: dict[str, dict[str, str | int]] = {
     "openai": {
         "model": "text-embedding-3-small",
-        "dimensions": 1536,
+        "dimension": 1536,
     },
     "local": {
         "model": "all-MiniLM-L6-v2",
-        "dimensions": 384,
+        "dimension": 384,
     },
 }
 ```
@@ -250,21 +259,23 @@ from pathlib import Path
 # Environment variable names and their target config paths
 # Format: "ENV_VAR_NAME": ("section", "field")
 ENV_VAR_MAP: dict[str, tuple[str, str]] = {
-    # Tickets section
-    "VTIC_TICKETS_DIR": ("tickets", "dir"),
+    # Storage section
+    "VTIC_STORAGE_DIR": ("storage", "dir"),
     
     # API section
     "VTIC_API_HOST": ("api", "host"),
     "VTIC_API_PORT": ("api", "port"),
     
     # Search section
-    "VTIC_SEARCH_ENABLE_SEMANTIC": ("search", "enable_semantic"),
-    "VTIC_SEARCH_EMBEDDING_PROVIDER": ("search", "embedding_provider"),
-    "VTIC_SEARCH_EMBEDDING_MODEL": ("search", "embedding_model"),
-    "VTIC_SEARCH_EMBEDDING_DIMENSIONS": ("search", "embedding_dimensions"),
     "VTIC_SEARCH_BM25_ENABLED": ("search", "bm25_enabled"),
-    "VTIC_SEARCH_HYBRID_BM25_WEIGHT": ("search", "hybrid_weights_bm25"),
-    "VTIC_SEARCH_HYBRID_SEMANTIC_WEIGHT": ("search", "hybrid_weights_semantic"),
+    "VTIC_SEARCH_SEMANTIC_ENABLED": ("search", "semantic_enabled"),
+    "VTIC_SEARCH_BM25_WEIGHT": ("search", "bm25_weight"),
+    "VTIC_SEARCH_SEMANTIC_WEIGHT": ("search", "semantic_weight"),
+    
+    # Embeddings section
+    "VTIC_EMBEDDINGS_PROVIDER": ("embeddings", "provider"),
+    "VTIC_EMBEDDINGS_MODEL": ("embeddings", "model"),
+    "VTIC_EMBEDDINGS_DIMENSION": ("embeddings", "dimension"),
     
     # API keys (not part of Config model, but used for validation)
     "OPENAI_API_KEY": ("_api_keys", "openai"),
@@ -300,15 +311,7 @@ from .models import Config, EMBEDDING_DEFAULTS
 
 def _parse_env_value(value: str) -> bool | int | float | str:
     """Parse environment variable string to appropriate type.
-    
-    Attempts to parse as: bool -> int -> float -> str
-    
-    Args:
-        value: Raw environment variable value.
-        
-    Returns:
-        Parsed value in appropriate type.
-    """
+"""
     # Boolean parsing
     lowered = value.lower()
     if lowered in ("true", "1", "yes", "on"):
@@ -334,9 +337,6 @@ def _parse_env_value(value: str) -> bool | int | float | str:
 
 def _load_env_overrides() -> dict[str, dict[str, Any]]:
     """Load configuration overrides from environment variables.
-    
-    Reads VTIC_* environment variables and maps them to config
-    section/field structure.
     
     Returns:
         Nested dict with structure: {section: {field: value}}
@@ -413,7 +413,7 @@ def _find_and_load_config_file(config_path: Path | None = None) -> dict[str, Any
 def _apply_provider_defaults(config_dict: dict[str, Any]) -> dict[str, Any]:
     """Apply provider-specific defaults for embedding configuration.
     
-    When embedding_provider is set but model/dimensions are not,
+    When embeddings.provider is set but model/dimension are not,
     apply the appropriate defaults for that provider.
     
     Args:
@@ -422,21 +422,21 @@ def _apply_provider_defaults(config_dict: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Modified configuration dictionary.
     """
-    search = config_dict.get("search", {})
-    provider = search.get("embedding_provider")
+    embeddings = config_dict.get("embeddings", {})
+    provider = embeddings.get("provider")
     
     if provider and provider in EMBEDDING_DEFAULTS:
         defaults = EMBEDDING_DEFAULTS[provider]
         
         # Apply model default if not set
-        if "embedding_model" not in search:
-            search["embedding_model"] = defaults["model"]
+        if "model" not in embeddings:
+            embeddings["model"] = defaults["model"]
         
-        # Apply dimensions default if not set
-        if "embedding_dimensions" not in search:
-            search["embedding_dimensions"] = defaults["dimensions"]
+        # Apply dimension default if not set
+        if "dimension" not in embeddings:
+            embeddings["dimension"] = defaults["dimension"]
         
-        config_dict["search"] = search
+        config_dict["embeddings"] = embeddings
     
     return config_dict
 
@@ -475,16 +475,16 @@ def load_config(config_path: Path | None = None) -> Config:
     5. Hardcoded defaults (lowest priority)
     
     Environment variables:
-        VTIC_TICKETS_DIR: Ticket directory path
+        VTIC_STORAGE_DIR: Ticket directory path
         VTIC_API_HOST: API server host address
         VTIC_API_PORT: API server port number
-        VTIC_SEARCH_ENABLE_SEMANTIC: Enable semantic search (bool)
-        VTIC_SEARCH_EMBEDDING_PROVIDER: Embedding provider
-        VTIC_SEARCH_EMBEDDING_MODEL: Embedding model name
-        VTIC_SEARCH_EMBEDDING_DIMENSIONS: Embedding dimensions
         VTIC_SEARCH_BM25_ENABLED: Enable BM25 (bool)
-        VTIC_SEARCH_HYBRID_BM25_WEIGHT: BM25 weight (0.0-1.0)
-        VTIC_SEARCH_HYBRID_SEMANTIC_WEIGHT: Semantic weight (0.0-1.0)
+        VTIC_SEARCH_SEMANTIC_ENABLED: Enable semantic search (bool)
+        VTIC_SEARCH_BM25_WEIGHT: BM25 weight (0.0-1.0)
+        VTIC_SEARCH_SEMANTIC_WEIGHT: Semantic weight (0.0-1.0)
+        VTIC_EMBEDDINGS_PROVIDER: Embedding provider
+        VTIC_EMBEDDINGS_MODEL: Embedding model name
+        VTIC_EMBEDDINGS_DIMENSION: Embedding dimensions
         OPENAI_API_KEY: OpenAI API key (for validation)
     
     Args:
@@ -546,7 +546,7 @@ import os
 import warnings
 from pathlib import Path
 
-from .models import Config, SearchConfig
+from .models import Config, SearchConfig, EmbeddingsConfig
 from .loader import get_openai_api_key
 
 
@@ -616,24 +616,39 @@ def validate_and_create_ticket_dir(dir_path: Path) -> Path:
     return abs_path
 
 
-def validate_search_config(search_config: SearchConfig) -> SearchConfig:
-    """Validate search configuration and handle semantic search requirements.
+def validate_embeddings_config(
+    embeddings_config: EmbeddingsConfig,
+    search_config: SearchConfig
+) -> tuple[EmbeddingsConfig, SearchConfig]:
+    """Validate embeddings configuration and handle semantic search requirements.
     
     Performs the following validations:
-    - If enable_semantic is true and provider is "openai", verify API key exists
+    - If semantic_enabled is true and provider is "openai", verify API key exists
     - If API key missing, emit warning and disable semantic search
     
     Args:
+        embeddings_config: Embeddings configuration to validate.
         search_config: Search configuration to validate.
         
     Returns:
-        Potentially modified search configuration.
+        Potentially modified (embeddings_config, search_config) tuple.
     """
-    if not search_config.enable_semantic:
+    if not search_config.semantic_enabled:
         # Semantic search disabled - nothing to validate
-        return search_config
+        return embeddings_config, search_config
     
-    if search_config.embedding_provider == "openai":
+    if embeddings_config.provider == "none":
+        warnings.warn(
+            "Semantic search is enabled but embeddings provider is 'none'. "
+            "Semantic search will be disabled. "
+            "Set embeddings.provider to 'openai', 'local', or 'custom'.",
+            UserWarning,
+            stacklevel=2
+        )
+        search_config.semantic_enabled = False
+        return embeddings_config, search_config
+    
+    if embeddings_config.provider == "openai":
         api_key = get_openai_api_key()
         
         if not api_key:
@@ -641,14 +656,14 @@ def validate_search_config(search_config: SearchConfig) -> SearchConfig:
                 "Semantic search is enabled with 'openai' provider, "
                 "but OPENAI_API_KEY environment variable is not set. "
                 "Semantic search will be disabled. "
-                "Set OPENAI_API_KEY or change embedding_provider to 'local' or 'none'.",
+                "Set OPENAI_API_KEY or change embeddings.provider to 'local' or 'none'.",
                 UserWarning,
                 stacklevel=2
             )
             # Disable semantic search due to missing API key
-            search_config.enable_semantic = False
+            search_config.semantic_enabled = False
     
-    elif search_config.embedding_provider == "local":
+    elif embeddings_config.provider == "local":
         # Local provider - verify sentence-transformers is available
         try:
             import sentence_transformers  # noqa: F401
@@ -661,9 +676,9 @@ def validate_search_config(search_config: SearchConfig) -> SearchConfig:
                 UserWarning,
                 stacklevel=2
             )
-            search_config.enable_semantic = False
+            search_config.semantic_enabled = False
     
-    return search_config
+    return embeddings_config, search_config
 
 
 def validate_and_initialize_config(config: Config) -> Config:
@@ -675,7 +690,7 @@ def validate_and_initialize_config(config: Config) -> Config:
     Validation steps:
     1. Validate server port range (raises ValueError if invalid)
     2. Create ticket directory if it doesn't exist
-    3. Validate search config (disable semantic if API key missing)
+    3. Validate embeddings config (disable semantic if API key missing)
     
     Args:
         config: Loaded configuration to validate.
@@ -688,14 +703,16 @@ def validate_and_initialize_config(config: Config) -> Config:
         ValueError: If port is out of range (via validate_port_range).
     """
     # 1. Validate server port
-    validate_port_range(config.server.port)
+    validate_port_range(config.api.port)
     
     # 2. Validate and create ticket directory
-    resolved_dir = validate_and_create_ticket_dir(config.tickets.dir)
-    config.tickets.dir = resolved_dir
+    resolved_dir = validate_and_create_ticket_dir(config.storage.dir)
+    config.storage.dir = resolved_dir
     
-    # 3. Validate search configuration
-    config.search = validate_search_config(config.search)
+    # 3. Validate embeddings and search configuration
+    config.embeddings, config.search = validate_embeddings_config(
+        config.embeddings, config.search
+    )
     
     return config
 
@@ -740,21 +757,23 @@ config = load_config(Path("/path/to/vtic.toml"))
 config = load_and_validate_config()
 
 # Access configuration values
-print(config.tickets.dir)           # PosixPath('/absolute/path/to/tickets')
-print(config.api.host)              # "127.0.0.1"
-print(config.api.port)              # 8900
+print(config.storage.dir)           # PosixPath('/absolute/path/to/tickets')
+print(config.api.host)              # "localhost"
+print(config.api.port)              # 8080
 print(config.search.bm25_enabled)   # True
-print(config.search.enable_semantic)  # False (if no API key)
+print(config.search.semantic_enabled)  # False (if no API key)
+print(config.embeddings.provider)   # "local"
 ```
 
 ### 4.2 Environment Variable Override
 
 ```bash
 # Override via environment
-export VTIC_TICKETS_DIR="/var/vtic/tickets"
+export VTIC_STORAGE_DIR="/var/vtic/tickets"
 export VTIC_API_PORT=8080
-export VTIC_SEARCH_ENABLE_SEMANTIC=true
-export VTIC_SEARCH_EMBEDDING_PROVIDER="openai"
+export VTIC_API_HOST="localhost"
+export VTIC_SEARCH_SEMANTIC_ENABLED=true
+export VTIC_EMBEDDINGS_PROVIDER="openai"
 export OPENAI_API_KEY="sk-..."
 ```
 
@@ -764,7 +783,8 @@ from vtic.config import load_config
 # Environment variables take precedence over config files
 config = load_config()
 assert config.api.port == 8080
-assert config.search.enable_semantic is True
+assert config.api.host == "localhost"
+assert config.search.semantic_enabled is True
 ```
 
 ### 4.3 Validation Behavior Examples
@@ -783,19 +803,19 @@ except ValueError as e:
     print(e)  # "Invalid server port: 99999. Port must be between 1 and 65535."
 
 # Example 2: Missing API key with semantic enabled
-os.environ["VTIC_SEARCH_ENABLE_SEMANTIC"] = "true"
-os.environ["VTIC_SEARCH_EMBEDDING_PROVIDER"] = "openai"
+os.environ["VTIC_SEARCH_SEMANTIC_ENABLED"] = "true"
+os.environ["VTIC_EMBEDDINGS_PROVIDER"] = "openai"
 # Note: OPENAI_API_KEY not set
 
 config = load_and_validate_config()
 # Warning emitted: "Semantic search is enabled... but OPENAI_API_KEY..."
-assert config.search.enable_semantic is False  # Auto-disabled
+assert config.search.semantic_enabled is False  # Auto-disabled
 
 # Example 3: Directory auto-creation
-os.environ["VTIC_TICKETS_DIR"] = "./new-tickets-dir"
+os.environ["VTIC_STORAGE_DIR"] = "./new-tickets-dir"
 config = load_and_validate_config()
 # Warning emitted: "Created ticket directory: /absolute/path/to/new-tickets-dir"
-assert config.tickets.dir.exists()  # Directory was created
+assert config.storage.dir.exists()  # Directory was created
 ```
 
 ---
@@ -806,9 +826,9 @@ assert config.tickets.dir.exists()  # Directory was created
 vtic/
 ├── config/
 │   ├── __init__.py          # Public exports: load_config, load_and_validate_config, Config
-│   ├── models.py            # Pydantic models (Config, TicketsConfig, ServerConfig, SearchConfig)
+│   ├── models.py            # Pydantic models (Config, StorageConfig, ApiConfig, SearchConfig, EmbeddingsConfig)
 │   ├── loader.py            # load_config(), _load_env_overrides(), _find_and_load_config_file()
-│   └── validation.py        # validate_and_initialize_config(), validate_search_config()
+│   └── validation.py        # validate_and_initialize_config(), validate_embeddings_config()
 ```
 
 ### 5.1 `__init__.py` Public API
@@ -820,7 +840,7 @@ Public API for loading and validating vtic configuration.
 """
 
 from .loader import load_config, get_openai_api_key
-from .models import Config, TicketsConfig, ApiConfig, SearchConfig
+from .models import Config, StorageConfig, ApiConfig, SearchConfig, EmbeddingsConfig
 from .validation import load_and_validate_config, ConfigValidationError
 
 __all__ = [
@@ -830,9 +850,10 @@ __all__ = [
     "get_openai_api_key",
     # Models
     "Config",
-    "TicketsConfig",
+    "StorageConfig",
     "ApiConfig",
     "SearchConfig",
+    "EmbeddingsConfig",
     # Exceptions
     "ConfigValidationError",
 ]
@@ -840,14 +861,57 @@ __all__ = [
 
 ---
 
-## 6. Summary
+## 6. TOML Configuration Example
+
+```toml
+# vtic.toml - Project configuration
+
+[storage]
+dir = "./tickets"
+
+[api]
+host = "localhost"
+port = 8080
+
+[search]
+bm25_enabled = true
+semantic_enabled = true
+bm25_weight = 0.6
+semantic_weight = 0.4
+
+[embeddings]
+provider = "local"
+model = "all-MiniLM-L6-v2"
+dimension = 384
+```
+
+---
+
+## 7. ConfigResponse Schema (from OpenAPI)
+
+The API `/config` endpoint returns a `ConfigResponse` matching this structure:
+
+```python
+class ConfigResponse(BaseModel):
+    """Current configuration response from /config endpoint."""
+    
+    storage: StorageConfig
+    search: SearchConfig
+    embeddings: EmbeddingsConfig
+    api: ApiConfig
+    request_id: str | None = None
+```
+
+---
+
+## 8. Summary
 
 | Validation Rule | Behavior |
 |----------------|----------|
-| `dir` doesn't exist | Create directory on init, emit warning |
+| `storage.dir` doesn't exist | Create directory on init, emit warning |
 | Port out of range (1-65535) | Raise `ValueError` |
-| `embedding_provider` set but no API key | Emit warning, disable semantic search |
-| `enable_semantic=true` with `provider="none"` | Raise `ValueError` (Pydantic) |
+| `embeddings.provider` set but no API key (openai) | Emit warning, disable semantic search |
+| `semantic_enabled=true` with `provider="none"` | Emit warning, disable semantic search |
 | Hybrid weights don't sum to ~1.0 | Emit warning, continue |
 | Invalid TOML syntax | Raise `ValueError` |
 | Config file not found | Use defaults, no error |
@@ -859,3 +923,16 @@ __all__ = [
 | 3 | Project `./vtic.toml` |
 | 4 | User `~/.config/vtic/config.toml` |
 | 5 (lowest) | Hardcoded Pydantic defaults |
+
+| Field | OpenAPI Name | Default |
+|-------|--------------|---------|
+| Ticket directory | `storage.dir` | `"./tickets"` |
+| API host | `api.host` | `"localhost"` |
+| API port | `api.port` | `8080` |
+| BM25 enabled | `search.bm25_enabled` | `true` |
+| Semantic enabled | `search.semantic_enabled` | `false` |
+| BM25 weight | `search.bm25_weight` | `0.6` |
+| Semantic weight | `search.semantic_weight` | `0.4` |
+| Embedding provider | `embeddings.provider` | `"local"` |
+| Embedding model | `embeddings.model` | `null` |
+| Embedding dimension | `embeddings.dimension` | `null` |

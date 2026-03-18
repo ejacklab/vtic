@@ -665,7 +665,7 @@ Use ALLOWED_ORIGINS from environment variable.
     "status": "open",
     "repo": "ejacklab/*"
   },
-  "topk": 10
+  "limit": 10
 }
 ```
 
@@ -685,7 +685,7 @@ Use ALLOWED_ORIGINS from environment variable.
   },
   "meta": {
     "query": "auth security issues",
-    "took_ms": 45
+    "duration_ms": 45
   }
 }
 ```

@@ -129,7 +129,7 @@ flowchart TD
     end
 
     subgraph Validation["🟠 Validation"]
-        B["validate_id_format()<br/>Regex: [A-Z][0-9]+"]
+        B["validate_id_format()<br/>Regex: [CFGHST]\d+"]
         B1{"Valid ID<br/>format?"}
     end
 
@@ -371,7 +371,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph Input["🔵 Input"]
-        A["HTTP POST /search<br/>Body: {<br/>  query: string,<br/>  semantic: bool,<br/>  filters: {...},<br/>  topk: int,<br/>  skip: int<br/>}"]
+        A["HTTP POST /search<br/>Body: {<br/>  query: string,<br/>  semantic: bool,<br/>  filters: {...},<br/>  limit: int,<br/>  skip: int<br/>}"]
     end
 
     subgraph Parse["🟠 Parse & Validate"]
@@ -403,7 +403,7 @@ flowchart TD
     end
 
     subgraph Pagination["🟠 Pagination"]
-        P["apply_pagination()<br/>skip + topk"]
+        P["apply_pagination()<br/>skip + limit"]
         Q["PaginatedResult<br/>{tickets, total, has_more}"]
     end
 
@@ -701,7 +701,7 @@ enable_semantic = false
 
 [api]
 host = "127.0.0.1"
-port = 8900
+port = 8080
 ```
 
 ### Zvec Schema Definition

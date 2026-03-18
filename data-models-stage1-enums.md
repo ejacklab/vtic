@@ -2,9 +2,84 @@
 
 This document defines all core enums for the vtic ticket system. These enums are used across models, API requests, and CLI commands.
 
+> **Canonical Source:** This document is derived from the OpenAPI 3.1.1 specification. In case of discrepancies, the OpenAPI spec is the source of truth.
+
 ---
 
-## 1. Severity
+## 1. Category
+
+**Python Code:**
+```python
+from enum import StrEnum
+from typing import Dict
+
+
+class Category(StrEnum):
+    """
+    Ticket category with ID prefix mapping.
+    
+    Categories determine both the storage directory and the ID prefix.
+    For example, crash tickets get IDs like C1, C2, C3.
+    
+    ID Prefix Mapping:
+    - crash → C
+    - hotfix → H
+    - feature → F
+    - security → S
+    - general → G
+    """
+    CRASH = "crash"         # Prefix: C
+    HOTFIX = "hotfix"       # Prefix: H
+    FEATURE = "feature"     # Prefix: F
+    SECURITY = "security"   # Prefix: S
+    GENERAL = "general"     # Prefix: G
+
+    @classmethod
+    def get_prefix(cls, category: "Category | str") -> str:
+        """Get the ID prefix for a category."""
+        prefix_map: Dict[str, str] = {
+            cls.CRASH.value: "C",
+            cls.HOTFIX.value: "H",
+            cls.FEATURE.value: "F",
+            cls.SECURITY.value: "S",
+            cls.GENERAL.value: "G",
+        }
+        value = category.value if isinstance(category, Category) else category
+        return prefix_map.get(value, "G")  # Unknown categories get G (general)
+```
+
+**Alternative Literal Type:**
+```python
+from typing import Literal
+
+CategoryLiteral = Literal["crash", "hotfix", "feature", "security", "general"]
+```
+
+**Values:**
+
+| Value | ID Prefix | Description |
+|-------|-----------|-------------|
+| `crash` | C | Application crashes, exceptions, system-breaking issues requiring immediate attention. |
+| `hotfix` | H | Urgent fixes that need to be deployed quickly. Critical bugs in production. |
+| `feature` | F | New features, enhancements, or improvements to existing functionality. |
+| `security` | S | Security vulnerabilities, threats, or hardening. XSS, SQL injection, secrets exposure, etc. |
+| `general` | G | General issues, questions, or tasks that don't fit other categories. Default category. |
+
+**Default Value:** `Category.GENERAL`
+
+**Used In:**
+- `Ticket.category` - The ticket's category
+- `TicketCreate.category` - Category when creating a ticket
+- `TicketUpdate.category` - Category when updating a ticket
+- `FilterSet.category` - Filter by category
+- ID generation: `Category.get_prefix(category) + sequence_number`
+- CLI flags: `--category {crash|hotfix|feature|security|general}`
+
+**ID Pattern:** All ticket IDs follow `^[CFGHST]\d+$` pattern (category prefix + number).
+
+---
+
+## 2. Severity
 
 **Python Code:**
 ```python
@@ -17,6 +92,7 @@ class Severity(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
+    INFO = "info"
 
     @property
     def weight(self) -> int:
@@ -26,6 +102,7 @@ class Severity(StrEnum):
             self.HIGH: 3,
             self.MEDIUM: 2,
             self.LOW: 1,
+            self.INFO: 0,
         }
         return weights.get(self, 0)
 ```
@@ -34,30 +111,31 @@ class Severity(StrEnum):
 ```python
 from typing import Literal
 
-SeverityLiteral = Literal["critical", "high", "medium", "low"]
+SeverityLiteral = Literal["critical", "high", "medium", "low", "info"]
 ```
 
 **Values:**
 
-| Value | Description |
-|-------|-------------|
-| `critical` | System-breaking issues requiring immediate attention. Production outages, data loss, security vulnerabilities actively exploited. |
-| `high` | Significant impact on functionality or user experience. Major features broken or security issues with high exploitability. |
-| `medium` | Moderate impact. Workarounds exist, or the issue affects non-core functionality. Performance degradation. |
-| `low` | Minor impact. Cosmetic issues, edge cases, or nice-to-have improvements. No urgency. |
+| Value | Weight | Description |
+|-------|--------|-------------|
+| `critical` | 4 | System-breaking issues requiring immediate attention. Production outages, data loss, security vulnerabilities actively exploited. |
+| `high` | 3 | Significant impact on functionality or user experience. Major features broken or security issues with high exploitability. |
+| `medium` | 2 | Moderate impact. Workarounds exist, or the issue affects non-core functionality. Performance degradation. |
+| `low` | 1 | Minor impact. Cosmetic issues, edge cases, or nice-to-have improvements. No urgency. |
+| `info` | 0 | Informational only. No action required. Used for tracking, documentation, or awareness. |
 
 **Default Value:** `Severity.MEDIUM`
 
 **Used In:**
 - `Ticket.severity` - The ticket's severity level
-- `TicketCreateRequest.severity` - Severity when creating a ticket
-- `TicketUpdateRequest.severity` - Severity when updating a ticket
-- `SearchQuery.severity` - Filter by severity
-- CLI flags: `--severity {critical|high|medium|low}`
+- `TicketCreate.severity` - Severity when creating a ticket
+- `TicketUpdate.severity` - Severity when updating a ticket
+- `FilterSet.severity` - Filter by severity
+- CLI flags: `--severity {critical|high|medium|low|info}`
 
 ---
 
-## 2. Status
+## 3. Status
 
 **Python Code:**
 ```python
@@ -154,214 +232,25 @@ Terminal statuses: closed, wont_fix
 
 **Used In:**
 - `Ticket.status` - Current status of the ticket
-- `TicketCreateRequest.status` - Status when creating (default: open)
-- `TicketUpdateRequest.status` - Status transitions
-- `SearchQuery.status` - Filter by status
-- `SearchQuery.not_status` - Exclude by status
+- `TicketCreate.status` - Status when creating (default: open)
+- `TicketUpdate.status` - Status transitions
+- `FilterSet.status` - Filter by status
 - CLI flags: `--status {open|in_progress|blocked|fixed|wont_fix|closed}`
 
 ---
 
-## 3. Category
-
-**Python Code:**
-```python
-from enum import StrEnum
-from typing import Dict, Set
-
-
-class Category(StrEnum):
-    """
-    Ticket category with ID prefix mapping.
-    
-    Categories determine both the storage directory and the ID prefix.
-    For example, security tickets get IDs like S1, S2, S3.
-    """
-    SECURITY = "security"       # Prefix: S
-    AUTH = "auth"               # Prefix: A
-    CODE_QUALITY = "code_quality"  # Prefix: C
-    PERFORMANCE = "performance" # Prefix: P
-    FRONTEND = "frontend"       # Prefix: F
-    BACKEND = "backend"         # Prefix: B
-    TESTING = "testing"         # Prefix: T
-    DOCUMENTATION = "documentation"  # Prefix: D
-    INFRASTRUCTURE = "infrastructure"  # Prefix: I
-    CONFIGURATION = "configuration"  # Prefix: G
-    API = "api"                 # Prefix: X
-    DATA = "data"               # Prefix: DA (two chars to distinguish from docs)
-    UI = "ui"                   # Prefix: U
-    DEPENDENCIES = "dependencies"  # Prefix: E
-    BUILD = "build"             # Prefix: L
-    OTHER = "other"             # Prefix: O
-
-    @classmethod
-    def get_prefix(cls, category: "Category | str") -> str:
-        """Get the ID prefix for a category."""
-        prefix_map: Dict[str, str] = {
-            cls.SECURITY.value: "S",
-            cls.AUTH.value: "A",
-            cls.CODE_QUALITY.value: "C",
-            cls.PERFORMANCE.value: "P",
-            cls.FRONTEND.value: "F",
-            cls.BACKEND.value: "B",
-            cls.TESTING.value: "T",
-            cls.DOCUMENTATION.value: "D",
-            cls.INFRASTRUCTURE.value: "I",
-            cls.CONFIGURATION.value: "G",
-            cls.API.value: "X",
-            cls.DATA.value: "DA",
-            cls.UI.value: "U",
-            cls.DEPENDENCIES.value: "E",
-            cls.BUILD.value: "L",
-            cls.OTHER.value: "O",
-        }
-        value = category.value if isinstance(category, Category) else category
-        return prefix_map.get(value, "X")
-```
-
-**Alternative Literal Type:**
-```python
-from typing import Literal
-
-CategoryLiteral = Literal[
-    "security", "auth", "code_quality", "performance",
-    "frontend", "backend", "testing", "documentation",
-    "infrastructure", "configuration", "api", "data",
-    "ui", "dependencies", "build", "other"
-]
-```
-
-**Values:**
-
-| Value | ID Prefix | Description |
-|-------|-----------|-------------|
-| `security` | S | Security vulnerabilities, threats, or hardening. XSS, SQL injection, secrets exposure, etc. |
-| `auth` | A | Authentication and authorization issues. Login, logout, permissions, roles, sessions. |
-| `code_quality` | C | Code maintainability, readability, technical debt, refactoring needs. |
-| `performance` | P | Speed, efficiency, resource usage, optimization opportunities. |
-| `frontend` | F | Client-side code, browser compatibility, JavaScript/CSS/HTML issues. |
-| `backend` | B | Server-side logic, business rules, data processing, internal services. |
-| `testing` | T | Unit tests, integration tests, test coverage, test infrastructure. |
-| `documentation` | D | README, API docs, inline comments, wiki pages, user guides. |
-| `infrastructure` | I | Cloud resources, networking, load balancers, monitoring, logging. |
-| `configuration` | G | Config files, environment variables, feature flags, settings. |
-| `api` | X | External API design, REST endpoints, GraphQL, API contracts, versioning. |
-| `data` | DA | Database design, migrations, data integrity, data models, schemas. |
-| `ui` | U | User interface design, UX, visual polish, component behavior. |
-| `dependencies` | E | Third-party libraries, package updates, dependency conflicts, licenses. |
-| `build` | L | Build scripts, CI/CD pipelines, compilation, bundling, deployment. |
-| `other` | O | Catch-all for anything that doesn't fit the above categories. |
-
-**Default Value:** `Category.OTHER`
-
-**ID Prefix Usage:**
-
-```python
-# Example: Generate ticket ID
-category = Category.SECURITY
-prefix = Category.get_prefix(category)  # "S"
-ticket_id = f"{prefix}{sequence_number}"  # "S1", "S2", etc.
-```
-
-**Used In:**
-- `Ticket.category` - The ticket's category
-- `TicketCreateRequest.category` - Category when creating a ticket
-- `TicketUpdateRequest.category` - Category when updating a ticket
-- `SearchQuery.category` - Filter by category
-- `SearchQuery.categories` - Filter by multiple categories (OR)
-- ID generation: `Category.get_prefix(category) + sequence_number`
-- CLI flags: `--category {security|auth|...|other}`
-
----
-
-## 4. SortField
+## 4. EmbeddingProvider
 
 **Python Code:**
 ```python
 from enum import StrEnum
 
-class SortField(StrEnum):
-    CREATED_AT = "created_at"
-    UPDATED_AT = "updated_at"
-    SEVERITY = "severity"
-    STATUS = "status"
-    RELEVANCE = "relevance"
-    TITLE = "title"
-```
-
-**Alternative Literal Type:**
-```python
-from typing import Literal
-
-SortFieldLiteral = Literal[
-    "created_at", "updated_at", "severity", "status", "relevance", "title"
-]
-```
-
-**Values:**
-
-| Value | Description |
-|-------|-------------|
-| `created_at` | Sort by ticket creation timestamp (chronological order). |
-| `updated_at` | Sort by last modification timestamp (most recently updated first/last). |
-| `severity` | Sort by severity level (critical > high > medium > low). |
-| `status` | Sort by status (alphabetical by status name). |
-| `relevance` | Sort by search relevance score (BM25 + semantic fusion). Only applicable when search query provided. |
-| `title` | Sort alphabetically by ticket title. |
-
-**Default Value:** `SortField.CREATED_AT` (or `SortField.RELEVANCE` when a search query is provided)
-
-**Used In:**
-- `SearchQuery.sort_field` - Primary sort field
-- `SearchQuery.sort` - Combined sort specification (e.g., "-created_at,severity")
-- `ListTicketsRequest.sort_field` - Sorting for list operations
-- CLI flags: `--sort {created_at|updated_at|severity|status|relevance|title}` or `--sort -severity` for descending
-
----
-
-## 5. SortOrder
-
-**Python Code:**
-```python
-from enum import StrEnum
-
-class SortOrder(StrEnum):
-    ASC = "asc"
-    DESC = "desc"
-```
-
-**Alternative Literal Type:**
-```python
-from typing import Literal
-
-SortOrderLiteral = Literal["asc", "desc"]
-```
-
-**Values:**
-
-| Value | Description |
-|-------|-------------|
-| `asc` | Ascending order (A-Z, 0-9, oldest-newest for timestamps, low-high for severity). |
-| `desc` | Descending order (Z-A, 9-0, newest-oldest for timestamps, high-low for severity). |
-
-**Default Value:** `SortOrder.DESC` for timestamps and relevance, `SortOrder.ASC` for title and status
-
-**Used In:**
-- `SearchQuery.sort_order` - Direction of sort
-- `ListTicketsRequest.sort_order` - Direction of sort
-- CLI flags: `--order {asc|desc}` or prefix sort field with `-` for descending (e.g., `--sort -created_at`)
-
----
-
-## 6. EmbeddingProvider
-
-**Python Code:**
-```python
-from enum import StrEnum
 
 class EmbeddingProvider(StrEnum):
-    OPENAI = "openai"
+    """Embedding provider for semantic search."""
     LOCAL = "local"
+    OPENAI = "openai"
+    CUSTOM = "custom"
     NONE = "none"
 ```
 
@@ -369,81 +258,34 @@ class EmbeddingProvider(StrEnum):
 ```python
 from typing import Literal
 
-EmbeddingProviderLiteral = Literal["openai", "local", "none"]
+EmbeddingProviderLiteral = Literal["local", "openai", "custom", "none"]
 ```
 
 **Values:**
 
 | Value | Description |
 |-------|-------------|
-| `openai` | Use OpenAI's embedding API (text-embedding-3-small or text-embedding-3-large). Requires OPENAI_API_KEY. |
 | `local` | Use local sentence-transformers model. Fully offline, no API key required. Downloads model on first use. |
+| `openai` | Use OpenAI's embedding API (text-embedding-3-small or text-embedding-3-large). Requires OPENAI_API_KEY. |
+| `custom` | Use a custom embedding provider. Configured via custom endpoint URL and authentication. |
 | `none` | Disable semantic search. BM25 keyword search only. No embeddings generated or stored. |
 
 **Default Value:** `EmbeddingProvider.NONE` (zero-config default, pure BM25)
 
 **Used In:**
-- `Config.embedding.provider` - Global embedding provider configuration
-- `Config.embedding_provider` - Shorthand config field
-- `IndexConfig.embedding_provider` - Per-index embedding provider
-- CLI flags: `--embedding-provider {openai|local|none}`
+- `Config.embeddings.provider` - Global embedding provider configuration
+- `ReindexRequest.provider` - Override provider for reindex operation
+- CLI flags: `--embedding-provider {local|openai|custom|none}`
 - API: Search endpoint respects provider config
 
 **Behavior by Provider:**
 
 | Provider | Semantic Search | Requires API Key | Internet Required |
 |----------|-----------------|------------------|-------------------|
-| `openai` | Yes | OPENAI_API_KEY | Yes |
 | `local` | Yes | No | No (after model download) |
+| `openai` | Yes | OPENAI_API_KEY | Yes |
+| `custom` | Yes | Provider-specific | Provider-specific |
 | `none` | No | No | No |
-
----
-
-## 7. DeleteMode
-
-**Python Code:**
-```python
-from enum import StrEnum
-
-class DeleteMode(StrEnum):
-    SOFT = "soft"
-    HARD = "hard"
-```
-
-**Alternative Literal Type:**
-```python
-from typing import Literal
-
-DeleteModeLiteral = Literal["soft", "hard"]
-```
-
-**Values:**
-
-| Value | Description |
-|-------|-------------|
-| `soft` | Move ticket to trash (`.trash/` directory) or mark with `status: deleted`. Recoverable via `vtic restore`. |
-| `hard` | Permanently delete the ticket file and remove from index. Irreversible. Requires `--force` flag in CLI. |
-
-**Default Value:** `DeleteMode.SOFT` (safe default to prevent accidental data loss)
-
-**Used In:**
-- `DeleteTicketRequest.mode` - API delete mode
-- `DeleteTicketsBulkRequest.mode` - Bulk delete mode
-- `TrashConfig.default_mode` - Default trash behavior
-- CLI flags: `--force` implies `hard`, default is `soft`
-- CLI trash commands: `vtic trash list`, `vtic trash restore`, `vtic trash clean`
-
-**Soft Delete Behavior:**
-- Move file to `.trash/{owner}/{repo}/{category}/{ticket_id}_{timestamp}.md`
-- Update index to mark as deleted (exclude from searches by default)
-- Preserve git history if tickets are versioned
-- Restorable via `vtic restore <id>`
-
-**Hard Delete Behavior:**
-- Permanently remove markdown file
-- Remove from Zvec index
-- Cannot be recovered
-- Requires explicit opt-in via `--force`
 
 ---
 
@@ -451,13 +293,10 @@ DeleteModeLiteral = Literal["soft", "hard"]
 
 | Enum | Values | Default | Primary Usage |
 |------|--------|---------|---------------|
-| `Severity` | critical, high, medium, low | `MEDIUM` | Ticket.severity |
+| `Category` | crash, hotfix, feature, security, general | `GENERAL` | Ticket.category, ID prefix |
+| `Severity` | critical, high, medium, low, info | `MEDIUM` | Ticket.severity |
 | `Status` | open, in_progress, blocked, fixed, wont_fix, closed | `OPEN` | Ticket.status, workflow |
-| `Category` | 16 values (see table) | `OTHER` | Ticket.category, ID prefix, storage path |
-| `SortField` | created_at, updated_at, severity, status, relevance, title | `CREATED_AT` | Search/list sorting |
-| `SortOrder` | asc, desc | `DESC` (timestamps) | Sort direction |
-| `EmbeddingProvider` | openai, local, none | `NONE` | Config.embedding.provider |
-| `DeleteMode` | soft, hard | `SOFT` | Ticket deletion behavior |
+| `EmbeddingProvider` | local, openai, custom, none | `NONE` | Config.embeddings.provider |
 
 ---
 
@@ -473,12 +312,12 @@ DeleteModeLiteral = Literal["soft", "hard"]
 
 5. **Status Transitions**: Use `Status.can_transition_to(target)` method or check `VALID_STATUS_TRANSITIONS` directly. Implement validation in API/CLI to reject invalid transitions.
 
-6. **Category to ID Prefix**: Use `Category.get_prefix(category)` to get the ID prefix. Some categories use two-character prefixes (e.g., `data` → `DA`) to avoid collisions.
+6. **Category to ID Prefix**: Use `Category.get_prefix(category)` to get the ID prefix. Only 5 valid categories exist, each with a single-character prefix.
 
-7. **Embedding Provider None**: When `NONE`, semantic search endpoints should return a clear error: "Semantic search requires an embedding provider. Set embedding.provider to 'openai' or 'local' in vtic.toml."
+7. **ID Pattern**: Ticket IDs follow pattern `^[CFGHST]\d+$`. Valid prefixes: C (crash), F (feature), G (general), H (hotfix), S (security). Note: T is reserved for testing but not a current category.
 
-8. **Delete Mode Soft Default**: Always default to soft delete in UI/CLI to prevent accidental data loss. Require explicit `--force` for hard delete.
+8. **Embedding Provider None**: When `NONE`, semantic search endpoints should return a clear error: "Semantic search requires an embedding provider. Set embedding.provider to 'local', 'openai', or 'custom' in vtic.toml."
 
-9. **Severity Sorting**: Use `Severity.weight` property for numeric comparison when sorting by severity.
+9. **Severity Sorting**: Use `Severity.weight` property for numeric comparison when sorting by severity. Info has weight 0 (lowest).
 
 10. **Status Display**: Use `Status.display_name` for human-readable labels in CLI output and API responses.
