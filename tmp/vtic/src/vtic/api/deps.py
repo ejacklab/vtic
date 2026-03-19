@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Request
+from fastapi import Request, Depends
 
 from vtic.models.config import Config, load_config
 
@@ -50,3 +50,35 @@ def get_ticket_service(request: Request) -> "TicketService":  # type: ignore
         TicketService instance
     """
     return request.app.state.ticket_service
+
+
+def get_search_engine(config: Config = Depends(get_config)) -> "SearchEngine":  # type: ignore
+    """Get SearchEngine instance.
+    
+    Args:
+        config: Config instance
+        
+    Returns:
+        SearchEngine instance
+    """
+    from vtic.search.engine import SearchEngine
+    from vtic.index.client import get_collection
+    collection = get_collection(config.storage.dir)
+    return SearchEngine(collection)
+
+
+def get_system_service(
+    config: Config = Depends(get_config),
+    ticket_service: "TicketService" = Depends(get_ticket_service),  # type: ignore
+) -> "SystemService":  # type: ignore
+    """Get SystemService instance.
+    
+    Args:
+        config: Config instance
+        ticket_service: TicketService instance
+        
+    Returns:
+        SystemService instance
+    """
+    from vtic.services.system import SystemService
+    return SystemService(config, ticket_service)
