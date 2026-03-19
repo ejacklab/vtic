@@ -132,7 +132,7 @@ class TestStatus:
         """Test TERMINAL_STATUSES constant."""
         assert Status.CLOSED in TERMINAL_STATUSES
         assert Status.WONT_FIX in TERMINAL_STATUSES
-        assert Status.FIXED not in TERMINAL_STATUSES  # FIXED is not in the constant
+        assert Status.FIXED in TERMINAL_STATUSES  # FIXED is terminal
 
     def test_display_names(self):
         """Test human-readable display names."""

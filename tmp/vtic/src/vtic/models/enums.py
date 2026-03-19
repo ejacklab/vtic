@@ -112,7 +112,7 @@ VALID_STATUS_TRANSITIONS: Dict[Status, Set[Status]] = {
 }
 
 # Terminal statuses - tickets that can't transition further without reopening
-TERMINAL_STATUSES: Set[Status] = {Status.CLOSED, Status.WONT_FIX}
+TERMINAL_STATUSES: Set[Status] = {Status.FIXED, Status.CLOSED, Status.WONT_FIX}
 
 
 class EmbeddingProvider(StrEnum):

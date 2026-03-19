@@ -526,32 +526,48 @@ class TestSuggestResult:
     """Test SuggestResult model."""
     
     def test_required_fields(self):
-        """SuggestResult requires query and suggestions."""
+        """SuggestResult requires suggestion and ticket_count."""
         result = SuggestResult(
-            query="cor",
-            suggestions=["CORS wildcard issue", "CORS configuration error"]
+            suggestion="CORS wildcard issue",
+            ticket_count=3
         )
-        assert result.query == "cor"
-        assert len(result.suggestions) == 2
-        assert "CORS wildcard issue" in result.suggestions
+        assert result.suggestion == "CORS wildcard issue"
+        assert result.ticket_count == 3
     
-    def test_empty_suggestions(self):
-        """SuggestResult can have empty suggestions."""
-        result = SuggestResult(query="xyz", suggestions=[])
-        assert result.suggestions == []
+    def test_ticket_count_min_zero(self):
+        """ticket_count must be >= 0."""
+        # Valid
+        SuggestResult(suggestion="test", ticket_count=0)
+        SuggestResult(suggestion="test", ticket_count=10)
+        
+        # Invalid
+        with pytest.raises(ValidationError):
+            SuggestResult(suggestion="test", ticket_count=-1)
     
     def test_serialization(self):
         """SuggestResult serializes to valid JSON."""
         result = SuggestResult(
-            query="cor",
-            suggestions=["CORS wildcard issue", "CORS configuration error", "core dump analysis"]
+            suggestion="CORS wildcard issue",
+            ticket_count=3
         )
         
         json_str = result.model_dump_json()
         data = json.loads(json_str)
         
-        assert data["query"] == "cor"
-        assert len(data["suggestions"]) == 3
+        assert data["suggestion"] == "CORS wildcard issue"
+        assert data["ticket_count"] == 3
+    
+    def test_suggest_result_list_example(self):
+        """Example of /search/suggest endpoint returning list[SuggestResult]."""
+        results = [
+            SuggestResult(suggestion="CORS wildcard issue", ticket_count=3),
+            SuggestResult(suggestion="CORS configuration error", ticket_count=2),
+            SuggestResult(suggestion="CORS preflight timeout", ticket_count=1),
+        ]
+        assert len(results) == 3
+        assert all(isinstance(r, SuggestResult) for r in results)
+        assert results[0].suggestion == "CORS wildcard issue"
+        assert results[0].ticket_count == 3
 
 
 # =============================================================================
@@ -629,12 +645,8 @@ class TestSampleJsonOutputs:
     def test_suggest_result_json(self):
         """Sample SuggestResult JSON."""
         result = SuggestResult(
-            query="cor",
-            suggestions=[
-                "CORS wildcard issue",
-                "CORS configuration error",
-                "core dump analysis"
-            ]
+            suggestion="CORS wildcard issue",
+            ticket_count=3
         )
         print("\n--- SuggestResult Sample JSON ---")
         print(result.model_dump_json(indent=2))

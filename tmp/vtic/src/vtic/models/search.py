@@ -529,26 +529,27 @@ class SuggestResult(BaseModel):
     
     Used for typeahead suggestions based on partial query input.
     Returns matching ticket titles or phrases with counts.
+    
+    The /search/suggest endpoint returns a list of these objects:
+    GET /search/suggest?q=cors&limit=5
+    Response: list[SuggestResult]
     """
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "query": "cor",
-                "suggestions": [
-                    "CORS wildcard issue",
-                    "CORS configuration error",
-                    "core dump analysis"
-                ]
+                "suggestion": "CORS wildcard issue",
+                "ticket_count": 3
             }
         }
     )
     
-    query: str = Field(
+    suggestion: str = Field(
         ...,
-        description="The original query string"
+        description="Suggested ticket title or phrase"
     )
-    suggestions: list[str] = Field(
-        default_factory=list,
-        description="List of suggested completions"
+    ticket_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of tickets matching this suggestion"
     )
