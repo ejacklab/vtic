@@ -172,6 +172,16 @@ class TestSearchBasic:
         for hit in result.hits:
             assert hit.score == 0.0
 
+    def test_search_empty_query(self, search_engine: SearchEngine) -> None:
+        """Empty query string is rejected by SearchQuery validation."""
+        from pydantic import ValidationError
+        # Empty query should raise validation error
+        with pytest.raises(ValidationError):
+            SearchQuery(query="")
+        # Whitespace-only query should also raise validation error
+        with pytest.raises(ValidationError):
+            SearchQuery(query="   ")
+
 
 class TestNormalizeScore:
     """Tests for score normalization."""

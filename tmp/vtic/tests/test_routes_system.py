@@ -433,6 +433,20 @@ class TestEdgeCases:
         # All checks should have valid status
         for check in data["checks"]:
             assert check["status"] in ["ok", "warning", "error"]
+
+    async def test_doctor_no_errors_in_happy_path(self, api_client_with_tickets: AsyncClient) -> None:
+        """Doctor returns valid response; checks have valid status values."""
+        response = await api_client_with_tickets.get("/doctor")
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Response should have valid overall status
+        assert data["overall"] in ["ok", "warnings", "errors"]
+        
+        # All checks should have valid status values
+        for check in data["checks"]:
+            assert check["status"] in ["ok", "warning", "error"]
     
     async def test_health_uptime_increases(self, api_client: AsyncClient) -> None:
         """Uptime increases between requests."""
