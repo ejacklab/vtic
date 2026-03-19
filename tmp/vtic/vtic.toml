@@ -1,0 +1,17 @@
+[storage]
+dir = "./tickets"
+
+[api]
+host = "localhost"
+port = 8080
+
+[search]
+bm25_enabled = true
+semantic_enabled = false
+bm25_weight = 0.7
+semantic_weight = 0.3
+
+[embeddings]
+provider = "none"
+model = null
+dimension = null
