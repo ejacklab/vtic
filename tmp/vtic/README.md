@@ -4,6 +4,70 @@
 
 **Zero infrastructure.** No database server, no Docker, no cloud service. `pip install vtic` and go.
 
+---
+
+## 🚀 Quick Setup (For Non-Developers)
+
+### Step 1: Install Python
+
+Make sure you have Python 3.10 or newer installed.
+
+```bash
+python3 --version
+```
+
+If you see `Python 3.10.x` or higher, you're good. If not, install Python from [python.org](https://www.python.org/downloads/).
+
+### Step 2: Install uv (Package Manager)
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### Step 3: Clone and Install vtic
+
+```bash
+# Download the code
+git clone https://github.com/661818yijack/vtic.git
+cd vtic
+
+# Create virtual environment with Python 3.12
+uv venv --python 3.12
+
+# Activate it
+source .venv/bin/activate  # Linux/Mac
+# OR
+.venv\Scripts\activate     # Windows
+
+# Install vtic
+uv pip install -e ".[dev]"
+```
+
+### Step 4: Test It Works
+
+```bash
+vtic --help
+```
+
+You should see a list of commands like `init`, `create`, `list`, `search`, etc.
+
+### Step 5: Start Using vtic
+
+```bash
+# Create a tickets folder
+vtic init ./my-tickets
+
+# Start the server
+vtic serve
+
+# In another terminal, create a ticket
+vtic create --repo "myproject/app" --title "My first ticket"
+```
+
+That's it! You're ready to use vtic.
+
+---
+
 ## Why vtic?
 
 Traditional ticket systems store issues in databases — great for CRUD, terrible for search. Finding "all auth-related security issues across 5 repos" means reading every ticket, every label, every description.
