@@ -75,24 +75,33 @@ That's it! You're ready to use vtic.
 
 ### Troubleshooting
 
-If you see `ModuleNotFoundError: No module named 'vtic.index'`:
+**If you see `ModuleNotFoundError: No module named 'vtic.index'`:**
+
+This means the package isn't installed correctly. Follow these steps **from the vtic repo root**:
 
 ```bash
-# 1. Pull latest code
-git pull
+# 1. Go to vtic repo (where pyproject.toml is)
+cd /path/to/vtic   # <-- MUST be in the vtic directory!
 
-# 2. Clear Python cache
-rm -rf src/vtic/__pycache__ src/vtic/**/__pycache__
+# 2. Verify you're in the right place
+ls pyproject.toml  # Should show the file
 
-# 3. Reinstall (force required to update package structure)
+# 3. Recreate venv from scratch
+rm -rf .venv
+uv venv --python 3.12
 source .venv/bin/activate
-uv pip install -e . --force-reinstall
 
-# 4. Test
+# 4. Install fresh
+uv pip install -e ".[dev]"
+
+# 5. Verify installation
 python -c "from vtic.index import client; print('OK')"
+python -c "from vtic.ticket import TicketService; print('OK')"
 ```
 
-If `vtic serve` fails with TOML errors:
+If both commands print `OK`, the installation is correct.
+
+**If `vtic serve` fails with TOML errors:**
 
 ```bash
 # Delete old config and re-init
