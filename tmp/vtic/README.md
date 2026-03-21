@@ -101,6 +101,93 @@ python -c "from vtic.ticket import TicketService; print('OK')"
 
 If both commands print `OK`, the installation is correct.
 
+---
+
+## Zvec API Reference
+
+vtic uses [Zvec](https://github.com/alibaba/zvec) — an in-process vector database by Alibaba (Proxima engine). Here's what you need to know:
+
+### Basic Setup
+
+```python
+import zvec
+from pathlib import Path
+
+# Create or open a collection (stored on disk)
+collection = zvec.Collection(Path("./.vtic"))
+
+# Define schema for tickets
+from vtic.index.schema import define_ticket_schema
+collection.set_schema(define_ticket_schema())
+```
+
+### Insert Tickets
+
+```python
+# Insert one or more tickets
+collection.insert([
+    {
+        "id": "C1",
+        "title": "CORS Wildcard Issue",
+        "description": "API allows wildcard CORS origins...",
+        "category": "security",
+        "severity": "high",
+    }
+])
+
+# Persist to disk
+collection.flush()
+```
+
+### Search (BM25)
+
+```python
+# BM25 keyword search — built-in, no embeddings needed
+results = collection.search(
+    query="CORS security issue",
+    anns_field="bm25_vector",  # BM25 field name
+    param={},
+    limit=10
+)
+
+# Results are list of (id, score) tuples
+for doc_id, score in results:
+    print(f"Ticket {doc_id}: score={score}")
+```
+
+### Fetch by ID
+
+```python
+# Get a single ticket
+doc = collection.get("C1")
+print(doc["title"])
+```
+
+### Delete
+
+```python
+# Delete by ID
+collection.delete(["C1"])
+collection.flush()
+```
+
+### Key Points
+
+| Feature | How it works in Zvec |
+|---------|---------------------|
+| **Storage** | Directory on disk (like SQLite) |
+| **BM25** | Built-in, automatic for text fields |
+| **Persistence** | Call `flush()` to save to disk |
+| **No server** | Runs in-process, no Docker/daemon |
+| **Thread-safe** | Yes, but use one collection per process |
+
+### Zvec Links
+
+- GitHub: https://github.com/alibaba/zvec
+- PyPI: https://pypi.org/project/zvec/
+
+---
+
 **If `vtic serve` fails with TOML errors:**
 
 ```bash
