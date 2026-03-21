@@ -73,6 +73,33 @@ vtic create --repo "myproject/app" --title "My first ticket"
 
 That's it! You're ready to use vtic.
 
+### Troubleshooting
+
+If you see `ModuleNotFoundError: No module named 'vtic.index'`:
+
+```bash
+# 1. Pull latest code
+git pull
+
+# 2. Clear Python cache
+rm -rf src/vtic/__pycache__ src/vtic/**/__pycache__
+
+# 3. Reinstall (force required to update package structure)
+source .venv/bin/activate
+uv pip install -e . --force-reinstall
+
+# 4. Test
+python -c "from vtic.index import client; print('OK')"
+```
+
+If `vtic serve` fails with TOML errors:
+
+```bash
+# Delete old config and re-init
+rm vtic.toml
+vtic init .
+```
+
 ---
 
 ## Why vtic?
