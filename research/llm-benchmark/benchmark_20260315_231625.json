@@ -1,0 +1,68 @@
+[
+  {
+    "status": "success",
+    "latency": 43.68193578720093,
+    "response": "",
+    "model": "zai/glm-5",
+    "accuracy": {
+      "7": null,
+      "8": false,
+      "9": false,
+      "10": false
+    },
+    "score": "0.0/4",
+    "correct": 0,
+    "partial": 0
+  },
+  {
+    "status": "success",
+    "latency": 33.64564800262451,
+    "response": "",
+    "model": "moonshot/kimi-k2.5",
+    "accuracy": {
+      "7": null,
+      "8": false,
+      "9": false,
+      "10": false
+    },
+    "score": "0.0/4",
+    "correct": 0,
+    "partial": 0
+  },
+  {
+    "status": "timeout",
+    "latency": 120.1206259727478,
+    "error": "Request timed out (120s)",
+    "model": "modelstudio/glm-5"
+  },
+  {
+    "status": "success",
+    "latency": 39.50959300994873,
+    "response": "1. 2\n2. Malaysia\n3. 299,792,458\u202fm/s\n4. 377,975\u202fkm\u00b2\n5. 7\n6. 12\n7. 1\n8. Dad\n9. 2005\n10. RM27",
+    "model": "modelstudio/MiniMax-M2.5",
+    "accuracy": {
+      "7": true,
+      "8": true,
+      "9": true,
+      "10": true
+    },
+    "score": "4.0/4",
+    "correct": 4,
+    "partial": 0
+  },
+  {
+    "status": "success",
+    "latency": 2.9229016304016113,
+    "response": "1. 2\n2. Malaysia\n3. 299,792,458 meters per second (or approximately 300,000 km/s)\n4. 377,975 square kilometers\n5. 7\n6. 14 (standard built-in types)\n7. 2\n8. Father/Uncle\n9. 2005\n10. RM27",
+    "model": "modelstudio/kimi-k2.5",
+    "accuracy": {
+      "7": false,
+      "8": true,
+      "9": true,
+      "10": true
+    },
+    "score": "3.0/4",
+    "correct": 3,
+    "partial": 0
+  }
+]

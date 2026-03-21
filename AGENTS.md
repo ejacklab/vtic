@@ -17,6 +17,33 @@ Before doing anything else:
 
 Don't ask permission. Just do it.
 
+## Delegated Coding Work
+
+When spawning subagents, coding agents, or ACP sessions for ANY coding task:
+
+1. **Read `rules/coding-standards.md`** first
+2. **Inject the full content** into the task prompt (or reference it clearly)
+3. Verify the subagent's output against the completion checklist before accepting
+4. **Run GLM-5 review** after any Kimi 2.5 work to catch gaps
+5. **Update `rules/coding-standards.md`** based on review findings
+
+### Task Routing
+
+| Work Type | Tool | Reason |
+|-----------|------|--------|
+| New feature (foundation) | Claude Code | High quality base, gets architecture right |
+| Enhancements, bug fixes, small tasks | Kimi 2.5 (subagent) | Cost-effective bulk work |
+| Review | GLM-5 (subagent) | Catches gaps, identifies rule improvements |
+
+### Learning Loop (1 week cycle)
+1. Kimi does the work
+2. GLM-5 reviews → identify what broke
+3. Update `rules/coding-standards.md` with new rules
+4. Repeat
+5. After 1 week → bake learnings into a skill for Kimi
+
+This ensures consistent quality regardless of which model/agent does the work.
+
 ## Harness Workflow
 
 For any **non-trivial task** (multi-step work, debugging, coding, research, cleanup, or anything likely to span more than one reply), use the local self-harness in this workspace.
@@ -74,6 +101,42 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 - When you learn a lesson → update AGENTS.md, TOOLS.md, or the relevant skill
 - When you make a mistake → document it so future-you doesn't repeat it
 - **Text > Brain** 📝
+
+## Model Preferences by Task Type
+
+Default model: `zai/glm-5`
+
+When spawning subagents or switching models, use:
+
+| Task Type | Model | Notes |
+|-----------|-------|-------|
+| **Research** | `gpt-5-mini` | Fast, broad knowledge, good for web search synthesis |
+| **Feature description** | `zai/glm-5` | Clear, structured thinking |
+| **Requirements & design** | `zai/glm-5` | Thorough analysis |
+| **Dev & test planning** | `zai/glm-5` | Comprehensive coverage |
+| **TypeScript development** | `zai/glm-5` | Strong TS knowledge, correct type theory |
+| **Python development** | `zai/glm-5` | Clean code, good patterns |
+| **Testing** | `glm-4.7` | Faster iteration, good enough for test logic |
+
+**Example spawn:**
+```bash
+# Research task
+sessions_spawn(model="gpt-5-mini", task="Research best practices for X")
+
+# TS dev task
+sessions_spawn(model="zai/glm-5", task="Implement feature Y in TypeScript")
+
+# Testing task
+sessions_spawn(model="glm-4.7", task="Write tests for Z module")
+```
+
+**Override when required:** These are preferences, not rules. If a task needs different capabilities, override:
+```bash
+sessions_spawn(model="openai/o3-mini", task="Complex reasoning task")  # Override default
+sessions_spawn(model="anthropic/claude-3.5-sonnet", task="Creative writing")  # Different strength
+```
+
+---
 
 ## Red Lines
 

@@ -315,8 +315,8 @@ def search(
         raise typer.Exit(1)
 
 
-@app.command()
-def list(
+@app.command("list")
+def list_tickets(
     status: Annotated[Optional[list[Status]], typer.Option("--status", "-s", help="Filter by status")] = None,
     severity: Annotated[Optional[list[Severity]], typer.Option("--severity", help="Filter by severity")] = None,
     category: Annotated[Optional[list[Category]], typer.Option("--category", "-c", help="Filter by category")] = None,

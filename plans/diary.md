@@ -17,3 +17,8 @@ Created local workflow rules, lightweight skill docs, task state scaffolding, an
 
 ### State at session end
 Local harness files exist under `skills/`, `rules/workflow/`, `plans/`, and `state.md`. Next step is to consistently use them during real tasks.
+## 2026-03-20
+
+- Completed a small TDD slice for `shared.prompt_utils` in `/tmp/codex-promptutils`.
+- Wrote `tests/test_prompt_utils.py` first, then implemented `backend/shared/prompt_utils.py`.
+- Verified with `cd /tmp/codex-promptutils && python3 -m pytest tests/test_prompt_utils.py` because `pytest` was not on PATH.
