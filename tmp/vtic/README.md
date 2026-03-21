@@ -54,15 +54,22 @@ You should see a list of commands like `init`, `create`, `list`, `search`, etc.
 ### Step 5: Start Using vtic
 
 ```bash
-# Create a tickets folder
-vtic init ./my-tickets
+# 1. Create a project folder
+mkdir my-tickets
+cd my-tickets
 
-# Start the server
+# 2. Initialize vtic (creates config file + tickets directory)
+vtic init .
+
+# 3. Start the server (MUST run from same directory as vtic.toml)
 vtic serve
 
-# In another terminal, create a ticket
+# 4. In another terminal, go to same folder and create a ticket
+cd my-tickets
 vtic create --repo "myproject/app" --title "My first ticket"
 ```
+
+**Important:** Always run `vtic serve` from the same directory where you ran `vtic init`. The `vtic.toml` config file tells vtic where to store tickets.
 
 That's it! You're ready to use vtic.
 
@@ -100,10 +107,19 @@ pip install vtic
 ### Initialize
 
 ```bash
-vtic init ./tickets
+# Create a project folder first
+mkdir my-vtic-project
+cd my-vtic-project
+
+# Initialize vtic in current directory
+vtic init .
 ```
 
-This creates the ticket storage directory and sets up the Zvec index.
+This creates:
+- `vtic.toml` — config file (must stay in this folder)
+- `tickets/` — where ticket markdown files are stored
+
+**Tip:** Always run `vtic serve` and `vtic create` from the same directory as `vtic.toml`.
 
 ### Create a Ticket
 
