@@ -198,7 +198,78 @@ vtic init .
 
 ---
 
-## Why vtic?
+## Multi-Agent Usage
+
+If you have multiple AI agents (cclow, dave, conte, finan, etc.) using vtic:
+
+### Each Agent Gets Its Own Copy
+
+```bash
+# cclow's workspace
+/home/smoke01/.openclaw/workspace-cclow/
+└── tickets/          # cclow's tickets
+
+# dave's workspace
+/home/smoke01/.openclaw/workspace-dave/
+└── tickets/          # dave's tickets
+
+# finan's workspace
+/home/smoke01/.openclaw/workspace-finan/
+└── tickets/          # finan's tickets
+```
+
+**Why?**
+- No collision risk (each agent owns their tickets)
+- No lock contention
+- Works offline
+- Git-friendly (tickets are markdown files)
+
+### Sync Pattern
+
+```bash
+# Each agent works locally
+cd /home/smoke01/.openclaw/workspace-cclow
+vtic create --title "My ticket"
+
+# Push to shared repo
+cd tickets
+git add .
+git commit -m "cclow: add new tickets"
+git push
+
+# Other agents pull
+cd /home/smoke01/.openclaw/workspace-dave/tickets
+git pull
+```
+
+### Ticket Ownership
+
+Agent prefixes help identify who created what:
+
+| Agent | Ticket prefix |
+|-------|---------------|
+| cclow | C1, C2, C3... |
+| dave  | D1, D2, D3... |
+| conte | T1, T2, T3... |
+| finan | F1, F2, F3... |
+
+**To add agent prefix:** Edit `vtic/models/enums.py` → add to `Category.get_prefix()` or create new category.
+
+### Alternative: Single API Server
+
+If you want shared access instead:
+
+```bash
+# Run ONE server
+vtic serve --port 8900
+
+# All agents call the same API
+curl -X POST http://localhost:8900/tickets -d '{"title": "..."}'
+```
+
+**Trade-off:** Simpler, but single point of failure.
+
+---
 
 Traditional ticket systems store issues in databases — great for CRUD, terrible for search. Finding "all auth-related security issues across 5 repos" means reading every ticket, every label, every description.
 
