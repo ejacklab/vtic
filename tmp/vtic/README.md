@@ -295,6 +295,22 @@ embedding_dimensions = 384
 
 Just use `vtic` as-is. Keyword search works out of the box.
 
+---
+
+### Semantic Search (Coming November 2026)
+
+Semantic search is **not implemented yet**. Why?
+
+- BM25 covers 95% of use cases for technical tickets
+- Embedding API costs add up at scale
+- Waiting for token prices to drop further
+
+**Planned:** November 2026, when embedding costs are projected to be 10x cheaper.
+
+If you need semantic search now, you can implement `search/semantic.py` yourself — the hooks are already in place.
+
+---
+
 ## Architecture
 
 ```
