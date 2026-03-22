@@ -186,20 +186,61 @@ When spawning multiple agents to work in parallel, **every file must have exactl
 
 ---
 
-## 11. Phase Separation (Design → Plan → Develop → Test → Review → Fix)
+## 11. Security & Privacy Review (Dave)
+
+**Every design must be reviewed by Dave (Research Agent) for security and privacy before implementation.**
+
+### Rules
+- After Phase 1 (Design) is complete, spawn Dave to review the design
+- Dave's review must explicitly check:
+  - **User data isolation** — Can one user access another's data?
+  - **Secrets handling** — Are API keys, tokens, passwords stored securely?
+  - **Auth boundaries** — Is every endpoint properly authenticated?
+  - **Permission scope** — Can agents/users do more than they should?
+  - **Data leakage** — Can sensitive data be exposed in logs, errors, responses?
+- Dave outputs a **Security Review Report** with pass/fail for each concern
+- If any concern fails, loop back to design phase before planning
+- Dave's review is **mandatory** — no implementation without security sign-off
+
+### Dave Spawn Example
+```bash
+sessions_spawn(
+  model="zai/glm-5",
+  task="Review this design for security and privacy concerns: [design doc path]
+  
+  Check:
+  1. User data isolation — Can one user access another's data?
+  2. Secrets handling — Are API keys, tokens, passwords stored securely?
+  3. Auth boundaries — Is every endpoint properly authenticated?
+  4. Permission scope — Can agents/users do more than they should?
+  5. Data leakage — Can sensitive data be exposed in logs, errors, responses?
+  
+  Output a Security Review Report with pass/fail for each concern."
+)
+```
+
+### Why Dave?
+- Independent reviewer — not the same agent that designed it
+- Research-focused — trained to spot vulnerabilities
+- Fresh perspective — catches what designers miss
+
+---
+
+## 12. Phase Separation (Design → Security Review → Plan → Develop → Test → Review → Fix)
 
 Never combine phases in a single agent. Each phase is a separate agent spawn with a focused, narrow task. The context window dilutes when tasks are too complex — separation improves quality.
 
-### Minimum 6 phases per feature
+### Minimum 7 phases per feature
 
 | # | Phase | Agent | Input | Output | Max Time |
 |---|-------|-------|-------|--------|----------|
 | 1 | **Design** | GLM-5 | Spec, requirements | Interface definitions, data contracts, method signatures | 20 min |
-| 2 | **Plan** | Kimi 2.5 | Design output | Task breakdown, file ownership table, test plan | 20 min |
-| 3 | **Develop** | Kimi 2.5 / GLM-5 | Plan output | Source code implementation | 20 min |
-| 4 | **Test** | Kimi 2.5 | Developed source + plan | Test code, run tests, test report | 20 min |
-| 5 | **Review** | GLM-5 | Source + tests + spec | Review report with issues, spec compliance check | 20 min |
-| 6 | **Fix** | GLM-5 | Review report + source | Fixes applied, re-run tests, verification | 20 min |
+| 2 | **Security Review** | Dave (GLM-5) | Design output | Security Review Report (pass/fail) | 15 min |
+| 3 | **Plan** | Kimi 2.5 | Design output + Security Report | Task breakdown, file ownership table, test plan | 20 min |
+| 4 | **Develop** | Kimi 2.5 / GLM-5 | Plan output | Source code implementation | 20 min |
+| 5 | **Test** | Kimi 2.5 | Developed source + plan | Test code, run tests, test report | 20 min |
+| 6 | **Review** | GLM-5 | Source + tests + spec | Review report with issues, spec compliance check | 20 min |
+| 7 | **Fix** | GLM-5 | Review report + source | Fixes applied, re-run tests, verification | 20 min |
 
 ### Rules
 - Each phase is a **separate agent spawn** — never combine phases
@@ -208,7 +249,8 @@ Never combine phases in a single agent. Each phase is a separate agent spawn wit
 - Each phase reads only what it needs: design reads specs, develop reads plan, test reads source, review reads source + spec
 - Output of phase N becomes input of phase N+1 (pass as file paths, not inline content)
 - If any phase fails, loop back — don't carry bad output forward
-- Use **session mode** for tightly coupled phases (Design→Plan, Review→Fix) to carry context forward
+- **Phase 2 (Security Review) is mandatory** — if Dave flags concerns, loop back to Phase 1
+- Use **session mode** for tightly coupled phases (Design→Security Review→Plan, Review→Fix) to carry context forward
 - Use **run mode** for independent phases (Develop, Test) to keep context windows clean
 
 ### Hybrid session approach
@@ -216,27 +258,35 @@ Never combine phases in a single agent. Each phase is a separate agent spawn wit
 Not all phases need fresh starts. Use session-bound agents for tightly coupled work:
 
 ```
-Phase 1+2: Same session (Design → Plan)
+Phase 1+2+3: Same session (Design → Security Review → Plan)
   spawn(mode="session", label="search-design")
   → agent designs interfaces
+  sessions_send(label="search-design", message="Dave, review this for security and privacy")
+  → Dave reviews, flags concerns or approves
   sessions_send(label="search-design", message="Now plan implementation")
-  → agent plans with full design context, no loss
+  → agent plans with full design + security context, no loss
 
-Phase 3: New session (Develop)
+Phase 4: New session (Develop)
   spawn(mode="run", task="Implement based on plan at /path/to/plan.md")
   → clean context, focused on code
 
-Phase 4: New session (Test)
+Phase 5: New session (Test)
   spawn(mode="run", task="Write tests for source at /path/")
 
-Phase 5+6: Same session (Review → Fix)
+Phase 6+7: Same session (Review → Fix)
   spawn(mode="session", label="search-review")
   → agent reviews source + tests against spec
   sessions_send(label="search-review", message="Now fix the issues you found")
   → agent knows exactly what it flagged, fixes precisely
 ```
 
-**Why hybrid:** Design→Plan and Review→Fix are tightly coupled — context carry-forward prevents miscommunication. But Develop and Test are heavy (lots of code/tokens) and benefit from clean context windows.
+**Why hybrid:** Design→Security Review→Plan and Review→Fix are tightly coupled — context carry-forward prevents miscommunication. But Develop and Test are heavy (lots of code/tokens) and benefit from clean context windows.
+
+### Why separation matters
+- Context window dilution: a 70k-token prompt with design + code + tests = confused agent, missed details
+- Complexity hurts quality: each additional responsibility reduces correctness
+- Focused agents produce cleaner output that's easier to verify
+- Security review by independent agent (Dave) catches what designers miss
 
 ### Why separation matters
 - Context window dilution: a 70k-token prompt with design + code + tests = confused agent, missed details
@@ -257,7 +307,7 @@ Phase 5+6: Same session (Review → Fix)
 
 ---
 
-## 12. Completion Checklist
+## 13. Completion Checklist
 
 Before declaring a task done, verify:
 - [ ] Unit tests written and passing

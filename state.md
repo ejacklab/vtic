@@ -12,6 +12,7 @@
 ## Done
 - bootstrap lightweight self-harness for cclow
 - create `skills/self-harness/` as the router skill for using and evolving the harness
+- MoneyFlow agent auth security fixes in `/tmp/lovemonself` (hashed token storage + permission-enforced agent routes)
 
 ---
 
@@ -42,4 +43,3 @@
 - Two-agent system better: Developer + Tester
 - Quality of LLM output = Quality of input specification
 - 4D lottery appears truly random (chi-square tests pass)
-
