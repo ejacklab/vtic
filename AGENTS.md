@@ -27,6 +27,31 @@ When spawning subagents, coding agents, or ACP sessions for ANY coding task:
 4. **Run GLM-5 review** after any Kimi 2.5 work to catch gaps
 5. **Update `rules/coding-standards.md`** based on review findings
 
+### Before Spawning Any Subagent
+
+Before spawning a subagent, always do these two steps:
+
+**1. Scan for relevant rules/skills**
+Check `rules/coding-standards.md` for sections that apply to this task type:
+- **UI/frontend task** → inject Section 13 (UX Review Context) into the task prompt
+- **TypeScript task** → inject `skills/ts-llm-tools/SKILL.md` content into the task prompt
+- **Python task** → inject `skills/python-llm-tools/SKILL.md` content into the task prompt
+- **Review task** → use `skills/verify-before-trust/SKILL.md`
+- **Planning task** → use `skills/planning/SKILL.md`
+
+**2. Inject into the task prompt, not just "read the rules"**
+Never say "read the rules before starting." Put the relevant rules INLINE in the task prompt. Subagents don't reliably read external files during their run.
+
+Example — spawning a UI task:
+```
+task="Build the /connect page...
+### UX Review Context (from rules/coding-standards.md Section 13)
+- The user's Google/Firebase session persists in the browser after a network error.
+  "Try Again" must NOT re-authenticate — use auth.currentUser.getIdToken() directly.
+- [rest of UX context]
+..."
+```
+
 ### Task Routing
 
 | Work Type | Tool | Reason |
