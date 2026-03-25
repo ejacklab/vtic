@@ -307,7 +307,61 @@ Phase 6+7: Same session (Review → Fix)
 
 ---
 
-## 13. Completion Checklist
+## 13. UX Review Context for UI/Frontend Tasks
+
+UI tasks are especially prone to implicit logic gaps — things the spec doesn't say but a human would immediately question. Always inject this context when spawning subagents for frontend/UI work.
+
+### The Problem
+
+A spec describes states and transitions, but doesn't capture:
+- Auth session persistence across errors
+- Client-side state that survives a retry
+- When to skip an auth step vs re-authenticate
+- What the user sees if they close a popup mid-flow
+- Whether a button click requires a full round-trip or can use cached data
+
+### Rule: Inject UX Review Context
+
+When spawning a subagent for any UI task, add a "UX Review Context" block to the task prompt. Example for an OAuth/auth flow:
+
+```
+### UX Review Context
+- The user's Google/Firebase session persists in the browser after a network error.
+  "Try Again" must NOT re-authenticate — use auth.currentUser.getIdToken() directly.
+- The spec may describe error buttons, but won't say "reuse the cached session."
+  Assume every transient error allows retry without re-auth unless auth is the error itself.
+- If the page has a multi-step flow, show a loading state immediately on action —
+  do not wait for the server to confirm before transitioning UI.
+- Timer/countdown: if a code expires, display it. If a request has a timeout,
+  show the user that a timeout is happening.
+```
+
+### Generic UX Review Context (always inject for UI tasks)
+
+```
+### UX Review Context
+- Assume the user's auth session (Firebase, Google OAuth, JWT) persists in the
+  browser. On error, check auth.currentUser before prompting re-authentication.
+- If a button triggers a network request, show a loading state immediately.
+- If an error occurs mid-flow, preserve as much state as possible so the user
+  doesn't lose their place.
+- After a successful action that triggers a redirect or close, confirm the action
+  completed before showing success — don't assume success from a button click.
+- For auth flows: distinguish between "session expired" (re-auth required) and
+  "network error" (retry with same session).
+```
+
+### Verification
+
+After the agent delivers, the parent reviews against the UX context:
+- [ ] Does "Try Again" reuse the cached auth session?
+- [ ] Is loading state shown immediately on action?
+- [ ] Does the error state preserve the user's context?
+- [ ] Are timeouts/countdowns visible to the user?
+
+---
+
+## 14. Completion Checklist
 
 Before declaring a task done, verify:
 - [ ] Unit tests written and passing
@@ -319,3 +373,4 @@ Before declaring a task done, verify:
 - [ ] Clean git state (no uncommitted mess)
 - [ ] No file ownership conflicts (each file written by exactly one agent)
 - [ ] Fixes verified by reading actual file content (not just agent's report)
+- [ ] **UI/frontend:** UX review context was injected and output verified against it
