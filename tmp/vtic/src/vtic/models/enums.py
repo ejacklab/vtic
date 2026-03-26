@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum, StrEnum
 from typing import Dict, Set
 
 
@@ -127,3 +127,37 @@ class DeleteMode(StrEnum):
     """Deletion mode for tickets."""
     SOFT = "soft"
     HARD = "hard"
+
+
+class Urgency(str, Enum):
+    """Ticket urgency level for priority calculation."""
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class Impact(str, Enum):
+    """Ticket impact level for priority calculation."""
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class PriorityLevel(str, Enum):
+    """
+    Final priority level derived from score.
+
+    Score ranges:
+    - P0: 90-100 (critical)
+    - P1: 70-89 (high)
+    - P2: 50-69 (medium)
+    - P3: 30-49 (low)
+    - P4: 0-29 (minimal)
+    """
+    P0 = "p0"  # 90-100
+    P1 = "p1"  # 70-89
+    P2 = "p2"  # 50-69
+    P3 = "p3"  # 30-49
+    P4 = "p4"  # 0-29

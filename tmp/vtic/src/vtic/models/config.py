@@ -129,6 +129,32 @@ class SearchConfig(BaseModel):
         return self
 
 
+DEFAULT_CATEGORY_MULTIPLIERS: dict[str, float] = {
+    "security": 1.5,
+    "hotfix": 1.3,
+    "bug": 1.2,
+    "feature": 1.0,
+    "enhancement": 0.9,
+    "docs": 0.8,
+    "chore": 0.7,
+    "refactor": 0.7,
+}
+
+
+class PriorityConfig(BaseModel):
+    """Configuration for priority scoring.
+    
+    Attributes:
+        category_multipliers: Dict of category → multiplier mapping.
+            Defaults to DEFAULT_CATEGORY_MULTIPLIERS.
+    """
+    
+    category_multipliers: dict[str, float] = Field(
+        default_factory=lambda: DEFAULT_CATEGORY_MULTIPLIERS.copy(),
+        description="Category multipliers for priority scoring",
+    )
+
+
 class EmbeddingsConfig(BaseModel):
     """Configuration for embedding providers.
     
@@ -211,6 +237,10 @@ class Config(BaseModel):
     embeddings: EmbeddingsConfig = Field(
         default_factory=EmbeddingsConfig,
         description="Embedding provider configuration"
+    )
+    priority: PriorityConfig = Field(
+        default_factory=PriorityConfig,
+        description="Priority scoring configuration",
     )
     
     model_config = {

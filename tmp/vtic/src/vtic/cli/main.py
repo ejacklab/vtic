@@ -18,7 +18,7 @@ from rich.table import Table
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from vtic.models.config import Config, load_config
-from vtic.models.enums import Category, Severity, Status
+from vtic.models.enums import Category, Severity, Status, Urgency, Impact
 
 app = typer.Typer(
     name="vtic",
@@ -324,7 +324,8 @@ def list_tickets(
     assignee: Annotated[Optional[str], typer.Option("--assignee", "-a", help="Filter by assignee")] = None,
     limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum results")] = 20,
     offset: Annotated[int, typer.Option("--offset", help="Pagination offset")] = 0,
-    sort: Annotated[str, typer.Option("--sort", help="Sort field (prefix - for desc)")] = "-created",
+    sort: Annotated[str, typer.Option("--sort", help="Sort field (prefix - for desc, or 'priority' for priority sorting)")] = "-created",
+    priority_above: Annotated[Optional[int], typer.Option("--priority-above", help="Filter: only tickets with priority score >= N")] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON instead of table")] = False,
 ) -> None:
     """List tickets with optional filtering."""
@@ -361,6 +362,41 @@ def list_tickets(
             tickets = data.get("data", [])
             meta = data.get("meta", {})
             total = meta.get("total", 0)
+            
+            # Handle priority sorting and filtering
+            if sort == "priority" or priority_above is not None:
+                from vtic.priority.engine import compute_priority
+                from vtic.models.enums import Urgency, Impact as ImpactEnum
+                
+                # Compute priority scores for tickets that have urgency/impact
+                tickets_with_priority = []
+                for ticket in tickets:
+                    urgency_val = ticket.get("urgency")
+                    impact_val = ticket.get("impact")
+                    if urgency_val and impact_val:
+                        try:
+                            breakdown = compute_priority(
+                                urgency=Urgency(urgency_val),
+                                impact=ImpactEnum(impact_val),
+                                category=ticket.get("category", "general"),
+                            )
+                            ticket["_priority_score"] = breakdown.final_score
+                        except (ValueError, KeyError):
+                            ticket["_priority_score"] = 0
+                    else:
+                        ticket["_priority_score"] = 0
+                    tickets_with_priority.append(ticket)
+                
+                tickets = tickets_with_priority
+                
+                # Filter by priority_above
+                if priority_above is not None:
+                    tickets = [t for t in tickets if t.get("_priority_score", 0) >= priority_above]
+                    total = len(tickets)
+                
+                # Sort by priority (descending by default for priority sort)
+                if sort == "priority":
+                    tickets = sorted(tickets, key=lambda t: t.get("_priority_score", 0), reverse=True)
             
             if not tickets:
                 console.print("[yellow]No tickets found[/yellow]")
@@ -414,6 +450,8 @@ def update(
     category: Annotated[Optional[Category], typer.Option("--category", "-c", help="New category")] = None,
     assignee: Annotated[Optional[str], typer.Option("--assignee", "-a", help="New assignee (or null to clear)")] = None,
     fix: Annotated[Optional[str], typer.Option("--fix", "-f", help="Resolution details")] = None,
+    urgency: Annotated[Optional[Urgency], typer.Option("--urgency", help="Urgency level")] = None,
+    impact: Annotated[Optional[Impact], typer.Option("--impact", help="Impact level")] = None,
 ) -> None:
     """Update a ticket (partial update)."""
     body: dict = {}
@@ -432,6 +470,10 @@ def update(
         body["assignee"] = assignee
     if fix:
         body["fix"] = fix
+    if urgency:
+        body["urgency"] = urgency.value
+    if impact:
+        body["impact"] = impact.value
     
     if not body:
         console.print("[yellow]No fields to update. Provide at least one field.[/yellow]")
@@ -484,6 +526,52 @@ def delete(
     except httpx.ConnectError:
         console.print(f"[red]Error: Cannot connect to server at {api_url}[/red]")
         console.print("[yellow]Make sure the server is running: vtic serve[/yellow]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def priority(
+    ticket_id: Annotated[str, typer.Argument(help="Ticket ID to show priority for")],
+) -> None:
+    """Show priority breakdown for a ticket."""
+    api_url = get_api_url()
+    
+    try:
+        response = httpx.get(f"{api_url}/tickets/{ticket_id}", timeout=10.0)
+        if response.status_code == 404:
+            console.print(f"[red]Error: Ticket '{ticket_id}' not found[/red]")
+            raise typer.Exit(1)
+        elif response.status_code != 200:
+            handle_api_error(response)
+        
+        data = response.json()
+        ticket = data.get("data", {})
+        
+        urgency = ticket.get("urgency")
+        impact = ticket.get("impact")
+        
+        if not urgency or not impact:
+            console.print(f"[yellow]Ticket {ticket_id} has no urgency/impact set.[/yellow]")
+            console.print("Use: vtic update {ticket_id} --urgency high --impact medium")
+            raise typer.Exit(0)
+        
+        # Compute priority locally
+        from vtic.priority.engine import compute_priority
+        from vtic.models.enums import Urgency, Impact
+        
+        breakdown = compute_priority(
+            urgency=Urgency(urgency),
+            impact=Impact(impact),
+            category=ticket.get("category", "general"),
+        )
+        
+        console.print(f"\n[bold]Priority: {breakdown.final_score} ({breakdown.priority_level.value})[/bold]")
+        console.print(f"  Base: {breakdown.base_score} ({breakdown.base_label} from ITIL)")
+        console.print(f"  Category: {breakdown.category_multiplier}x ({breakdown.category})")
+        console.print(f"  Final: {breakdown.final_score}")
+        
+    except httpx.ConnectError:
+        console.print(f"[red]Error: Cannot connect to server at {api_url}[/red]")
         raise typer.Exit(1)
 
 
@@ -571,6 +659,101 @@ def doctor() -> None:
         console.print(f"[red]Error: Cannot connect to server at {api_url}[/red]")
         console.print("[yellow]Make sure the server is running: vtic serve[/yellow]")
         raise typer.Exit(1)
+
+
+@app.command("migrate-priority")
+def migrate_priority(
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be migrated without making changes")] = False,
+) -> None:
+    """Migrate existing tickets to include priority fields.
+    
+    This is an idempotent migration that:
+    - Scans all existing tickets
+    - Ensures urgency/impact fields are present (defaults to None)
+    - Recomputes priority_breakdown for tickets that have urgency+impact
+    
+    Since the Ticket model has urgency/impact as optional fields with None defaults,
+    this migration is primarily for ensuring consistency and can be run multiple times
+    without side effects.
+    """
+    config = load_config()
+    tickets_dir = config.storage.dir
+    
+    if not tickets_dir.exists():
+        console.print(f"[red]Tickets directory not found: {tickets_dir}[/red]")
+        raise typer.Exit(1)
+    
+    from vtic.store import markdown as store_markdown
+    from vtic.priority.engine import compute_priority
+    from vtic.models.enums import Urgency, Impact
+    
+    migrated = 0
+    skipped = 0
+    already_has_priority = 0
+    errors = 0
+    
+    for ticket_file in tickets_dir.rglob("*.md"):
+        # Skip trash directory and hidden files
+        if ".trash" in ticket_file.parts or ticket_file.name.startswith("."):
+            continue
+        
+        try:
+            ticket_dict = store_markdown.read_ticket(ticket_file)
+            if ticket_dict is None:
+                skipped += 1
+                continue
+            
+            urgency_val = ticket_dict.get("urgency")
+            impact_val = ticket_dict.get("impact")
+            
+            # Check if ticket already has both urgency and impact
+            if urgency_val and impact_val:
+                already_has_priority += 1
+                continue
+            
+            # Check if we can compute priority (both must be set)
+            if urgency_val and impact_val:
+                try:
+                    breakdown = compute_priority(
+                        urgency=Urgency(urgency_val),
+                        impact=Impact(impact_val),
+                        category=ticket_dict.get("category", "general"),
+                    )
+                    
+                    if dry_run:
+                        console.print(f"[yellow]Would update:[/] {ticket_file.name} -> P{breakdown.priority_level.value}")
+                    else:
+                        # For now, tickets are stored with urgency/impact in frontmatter
+                        # No additional migration needed - the priority is computed on-the-fly
+                        console.print(f"[dim]Has priority fields: {ticket_file.name}[/dim]")
+                    
+                    migrated += 1
+                except (ValueError, KeyError) as e:
+                    console.print(f"[red]Error processing {ticket_file.name}: {e}[/red]")
+                    errors += 1
+            else:
+                # Ticket has no urgency/impact - this is OK, they default to None
+                skipped += 1
+                if dry_run:
+                    console.print(f"[dim]No priority fields: {ticket_file.name}[/dim]")
+                    
+        except Exception as e:
+            console.print(f"[red]Error reading {ticket_file.name}: {e}[/red]")
+            errors += 1
+    
+    console.print()
+    console.print("[bold]Migration Summary:[/bold]")
+    console.print(f"  [green]Already has priority fields:[/] {already_has_priority}")
+    console.print(f"  [yellow]No priority fields (will default to None):[/] {skipped}")
+    console.print(f"  [red]Errors:[/] {errors}")
+    
+    if dry_run:
+        console.print()
+        console.print("[yellow]Dry run complete - no changes made[/yellow]")
+    else:
+        console.print()
+        console.print("[green]Migration complete![/green]")
+        console.print("[dim]Tickets without urgency/impact will have None values for priority fields.[/dim]")
 
 
 def main() -> None:

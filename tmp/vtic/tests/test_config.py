@@ -12,10 +12,12 @@ from vtic.models.config import (
     ApiConfig,
     SearchConfig,
     EmbeddingsConfig,
+    PriorityConfig,
     load_config,
     _parse_env_value,
     _load_env_overrides,
     EMBEDDING_DEFAULTS,
+    DEFAULT_CATEGORY_MULTIPLIERS,
 )
 
 
@@ -451,3 +453,52 @@ port = 0
         monkeypatch.setenv("VTIC_API_PORT", "65535")
         config = load_config()
         assert config.api.port == 65535
+
+
+class TestPriorityConfig:
+    """Tests for PriorityConfig model."""
+
+    def test_priority_config_defaults(self):
+        """Test default priority configuration values."""
+        config = PriorityConfig()
+        assert config.category_multipliers["security"] == 1.5
+        assert config.category_multipliers["bug"] == 1.2
+        assert config.category_multipliers["chore"] == 0.7
+
+    def test_priority_config_custom_multipliers(self):
+        """Test custom category multipliers."""
+        config = PriorityConfig(category_multipliers={"bug": 2.0})
+        assert config.category_multipliers["bug"] == 2.0
+
+    def test_priority_config_all_default_categories(self):
+        """Test all default categories are present."""
+        config = PriorityConfig()
+        expected_keys = {
+            "security", "hotfix", "bug", "feature",
+            "enhancement", "docs", "chore", "refactor"
+        }
+        assert set(config.category_multipliers.keys()) == expected_keys
+
+    def test_priority_config_defaults_are_copies(self):
+        """Test that each instance gets its own copy of defaults."""
+        config1 = PriorityConfig()
+        config2 = PriorityConfig()
+        config1.category_multipliers["bug"] = 5.0
+        assert config2.category_multipliers["bug"] == 1.2
+
+    def test_config_includes_priority(self):
+        """Test that Config includes priority configuration."""
+        config = Config()
+        assert config.priority is not None
+        assert "bug" in config.priority.category_multipliers
+
+    def test_default_category_multipliers_constant(self):
+        """Test DEFAULT_CATEGORY_MULTIPLIERS constant values."""
+        assert DEFAULT_CATEGORY_MULTIPLIERS["security"] == 1.5
+        assert DEFAULT_CATEGORY_MULTIPLIERS["hotfix"] == 1.3
+        assert DEFAULT_CATEGORY_MULTIPLIERS["bug"] == 1.2
+        assert DEFAULT_CATEGORY_MULTIPLIERS["feature"] == 1.0
+        assert DEFAULT_CATEGORY_MULTIPLIERS["enhancement"] == 0.9
+        assert DEFAULT_CATEGORY_MULTIPLIERS["docs"] == 0.8
+        assert DEFAULT_CATEGORY_MULTIPLIERS["chore"] == 0.7
+        assert DEFAULT_CATEGORY_MULTIPLIERS["refactor"] == 0.7

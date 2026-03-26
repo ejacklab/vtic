@@ -642,3 +642,191 @@ def test_ticket_response_with_meta(sample_ticket):
     parsed = json.loads(json_str)
     assert parsed["meta"]["request_id"] == "req_abc123"
     assert "deprecated_field_used" in parsed["meta"]["warnings"]
+
+
+# =============================================================================
+# Priority Fields Tests
+# =============================================================================
+
+
+class TestTicketPriorityFields:
+    """Tests for urgency, impact, and priority_breakdown fields."""
+
+    def test_ticket_with_urgency_and_impact(self, sample_ticket_data):
+        """Test creating a Ticket with urgency and impact."""
+        data = {
+            **sample_ticket_data,
+            "urgency": "high",
+            "impact": "medium",
+        }
+        ticket = Ticket(**data)
+        assert ticket.urgency.value == "high"
+        assert ticket.impact.value == "medium"
+
+    def test_priority_fields_default_to_none(self, sample_ticket_data):
+        """Test that priority fields default to None."""
+        ticket = Ticket(**sample_ticket_data)
+        assert ticket.urgency is None
+        assert ticket.impact is None
+        assert ticket.priority_breakdown is None
+
+    def test_compute_priority_with_urgency_and_impact(self, sample_ticket_data):
+        """Test compute_priority returns correct breakdown."""
+        from vtic.models import Urgency, Impact, PriorityLevel, PriorityBreakdown
+
+        data = {
+            **sample_ticket_data,
+            "urgency": Urgency.HIGH,
+            "impact": Impact.MEDIUM,
+            "category": "security",  # 1.5 multiplier
+        }
+        ticket = Ticket(**data)
+        breakdown = ticket.compute_priority()
+
+        assert breakdown is not None
+        assert breakdown.base_score == 60  # HIGH × MEDIUM from ITIL matrix
+        assert breakdown.base_label == "high × medium"
+        assert breakdown.category == "security"
+        assert breakdown.category_multiplier == 1.5
+        assert breakdown.final_score == 90  # 60 * 1.5 = 90
+        assert breakdown.priority_level == PriorityLevel.P0  # 90 >= 90
+
+    def test_compute_priority_returns_none_without_urgency(self, sample_ticket_data):
+        """Test compute_priority returns None if urgency is not set."""
+        from vtic.models import Impact
+
+        data = {
+            **sample_ticket_data,
+            "impact": Impact.HIGH,
+        }
+        ticket = Ticket(**data)
+        breakdown = ticket.compute_priority()
+        assert breakdown is None
+
+    def test_compute_priority_returns_none_without_impact(self, sample_ticket_data):
+        """Test compute_priority returns None if impact is not set."""
+        from vtic.models import Urgency
+
+        data = {
+            **sample_ticket_data,
+            "urgency": Urgency.HIGH,
+        }
+        ticket = Ticket(**data)
+        breakdown = ticket.compute_priority()
+        assert breakdown is None
+
+    def test_compute_priority_with_custom_multipliers(self, sample_ticket_data):
+        """Test compute_priority with custom category multipliers."""
+        from vtic.models import Urgency, Impact, PriorityLevel
+
+        data = {
+            **sample_ticket_data,
+            "urgency": Urgency.MEDIUM,
+            "impact": Impact.LOW,
+            "category": "security",
+        }
+        ticket = Ticket(**data)
+
+        # Override security multiplier to 2.0
+        custom_multipliers = {"security": 2.0}
+        breakdown = ticket.compute_priority(category_multipliers=custom_multipliers)
+
+        assert breakdown is not None
+        assert breakdown.base_score == 35  # MEDIUM × LOW from ITIL matrix
+        assert breakdown.final_score == 70  # 35 * 2.0 = 70
+        assert breakdown.priority_level == PriorityLevel.P1  # 70 >= 70
+
+    def test_compute_priority_clamps_to_100(self, sample_ticket_data):
+        """Test that final_score is clamped to 100 max."""
+        from vtic.models import Urgency, Impact, PriorityLevel
+
+        data = {
+            **sample_ticket_data,
+            "urgency": Urgency.CRITICAL,
+            "impact": Impact.CRITICAL,
+            "category": "security",  # 1.5 multiplier
+        }
+        ticket = Ticket(**data)
+        breakdown = ticket.compute_priority()
+
+        # 95 * 1.5 = 142.5 → clamped to 100
+        assert breakdown is not None
+        assert breakdown.base_score == 95
+        assert breakdown.final_score == 100
+        assert breakdown.priority_level == PriorityLevel.P0
+
+    def test_compute_priority_unknown_category_uses_default(self, sample_ticket_data):
+        """Test that unknown categories use default multiplier of 1.0."""
+        from vtic.models import Urgency, Impact, PriorityLevel
+
+        data = {
+            **sample_ticket_data,
+            "urgency": Urgency.HIGH,
+            "impact": Impact.HIGH,
+            "category": "general",  # Not in default multipliers
+        }
+        ticket = Ticket(**data)
+        breakdown = ticket.compute_priority()
+
+        assert breakdown is not None
+        assert breakdown.base_score == 70  # HIGH × HIGH from ITIL matrix
+        assert breakdown.category_multiplier == 1.0  # Default
+        assert breakdown.final_score == 70
+        assert breakdown.priority_level == PriorityLevel.P1
+
+    def test_priority_breakdown_serialization(self, sample_ticket_data):
+        """Test that priority_breakdown serializes to JSON correctly."""
+        from vtic.models import Urgency, Impact
+
+        data = {
+            **sample_ticket_data,
+            "urgency": Urgency.CRITICAL,
+            "impact": Impact.HIGH,
+        }
+        ticket = Ticket(**data)
+        breakdown = ticket.compute_priority()
+
+        # Store breakdown on ticket
+        ticket.priority_breakdown = breakdown
+
+        # Serialize to JSON
+        json_str = ticket.model_dump_json()
+        parsed = json.loads(json_str)
+
+        assert parsed["priority_breakdown"]["base_score"] == 85
+        assert parsed["priority_breakdown"]["base_label"] == "critical × high"
+        assert parsed["priority_breakdown"]["category"] == "security"
+        # 85 * 1.5 = 127.5 → clamped to 100
+        assert parsed["priority_breakdown"]["final_score"] == 100
+        assert parsed["priority_breakdown"]["priority_level"] == "p0"
+
+    def test_all_priority_levels_derived_correctly(self, sample_ticket_data):
+        """Test that all priority levels are derived correctly from scores."""
+        from vtic.models import Urgency, Impact, PriorityLevel
+
+        # Using feature category (1.0 multiplier)
+        test_cases = [
+            # (urgency, impact, expected_level, expected_base_score)
+            (Urgency.CRITICAL, Impact.CRITICAL, PriorityLevel.P0, 95),  # 95 * 1.0 = 95 (P0: >=90)
+            (Urgency.HIGH, Impact.HIGH, PriorityLevel.P1, 70),  # 70 * 1.0 = 70 (P1: >=70)
+            (Urgency.MEDIUM, Impact.MEDIUM, PriorityLevel.P2, 50),  # 50 * 1.0 = 50 (P2: >=50)
+            (Urgency.LOW, Impact.LOW, PriorityLevel.P4, 20),  # 20 * 1.0 = 20 (P4: <30)
+        ]
+
+        for urgency, impact, expected_level, expected_base in test_cases:
+            data = {
+                **sample_ticket_data,
+                "urgency": urgency,
+                "impact": impact,
+                "category": "feature",  # 1.0 multiplier
+            }
+            ticket = Ticket(**data)
+            breakdown = ticket.compute_priority()
+
+            assert breakdown is not None, f"No breakdown for {urgency} × {impact}"
+            assert breakdown.base_score == expected_base, \
+                f"Expected base {expected_base} for {urgency} × {impact}, got {breakdown.base_score}"
+            assert breakdown.final_score == expected_base, \
+                f"Expected final {expected_base} for {urgency} × {impact}, got {breakdown.final_score}"
+            assert breakdown.priority_level == expected_level, \
+                f"Expected {expected_level} for score {breakdown.final_score}, got {breakdown.priority_level}"

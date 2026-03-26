@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .enums import Category, Severity, Status
+from .enums import Category, Impact, PriorityLevel, Severity, Status, Urgency
 
 
 def _generate_slug(title: str) -> str:
@@ -24,6 +24,45 @@ def _generate_slug(title: str) -> str:
     # Ensure starts and ends with alphanumeric
     slug = slug.strip("-")
     return slug
+
+
+class PriorityBreakdown(BaseModel):
+    """
+    Detailed breakdown of how a ticket's priority was calculated.
+
+    This model captures the full priority calculation for transparency
+    and debugging purposes.
+    """
+
+    base_score: int = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Score from ITIL urgency/impact matrix (0-100)",
+    )
+    base_label: str = Field(
+        ...,
+        description="Human-readable label for base score (e.g., 'high × medium')",
+    )
+    category: str = Field(
+        ...,
+        description="Ticket category (e.g., 'bug', 'feature')",
+    )
+    category_multiplier: float = Field(
+        ...,
+        ge=0,
+        description="Multiplier applied based on category (e.g., 1.2 for bugs)",
+    )
+    final_score: int = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Final clamped score after multiplier (0-100)",
+    )
+    priority_level: PriorityLevel = Field(
+        ...,
+        description="Derived priority level (P0-P4)",
+    )
 
 
 class Ticket(BaseModel):
@@ -138,6 +177,20 @@ class Ticket(BaseModel):
         examples=[["C2", "C3"]],
     )
 
+    # === Priority Fields ===
+    urgency: Urgency | None = Field(
+        default=None,
+        description="Ticket urgency level for priority calculation",
+    )
+    impact: Impact | None = Field(
+        default=None,
+        description="Ticket impact level for priority calculation",
+    )
+    priority_breakdown: PriorityBreakdown | None = Field(
+        default=None,
+        description="Detailed breakdown of priority calculation",
+    )
+
     @field_validator("slug", mode="before")
     @classmethod
     def auto_generate_slug(cls, v: Optional[str], info: Any) -> str:
@@ -183,6 +236,21 @@ class Ticket(BaseModel):
         """Get the category prefix from the ID."""
         match = re.match(r"^([CFGHST])", self.id)
         return match.group(1) if match else "G"
+
+    def compute_priority(
+        self, category_multipliers: dict[str, float] | None = None
+    ) -> PriorityBreakdown | None:
+        """Compute priority breakdown. Returns None if urgency/impact not set."""
+        if self.urgency is None or self.impact is None:
+            return None
+
+        from vtic.priority.engine import compute_priority as engine_compute
+        return engine_compute(
+            urgency=self.urgency,
+            impact=self.impact,
+            category=self.category,
+            category_multipliers=category_multipliers,
+        )
 
 
 class TicketCreate(BaseModel):
@@ -362,6 +430,14 @@ class TicketUpdate(BaseModel):
     references: Optional[List[str]] = Field(
         default=None,
         description="Updated related ticket IDs",
+    )
+    urgency: Optional[Urgency] = Field(
+        default=None,
+        description="New urgency level for priority calculation",
+    )
+    impact: Optional[Impact] = Field(
+        default=None,
+        description="New impact level for priority calculation",
     )
 
     @field_validator("title")

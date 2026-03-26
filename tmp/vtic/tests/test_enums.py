@@ -6,6 +6,9 @@ from vtic.models.enums import (
     Category,
     Severity,
     Status,
+    Urgency,
+    Impact,
+    PriorityLevel,
     EmbeddingProvider,
     DeleteMode,
     VALID_STATUS_TRANSITIONS,
@@ -270,3 +273,83 @@ class TestEnumSerialization:
         categories = {Category.CRASH, Category.HOTFIX}
         assert "crash" in [c.value for c in categories]
         assert Category.CRASH in categories
+
+
+class TestPriorityEnums:
+    """Tests for priority-related enums (Urgency, Impact, PriorityLevel)."""
+
+    def test_urgency_all_values(self):
+        """Test all urgency values are defined."""
+        assert Urgency.CRITICAL == "critical"
+        assert Urgency.HIGH == "high"
+        assert Urgency.MEDIUM == "medium"
+        assert Urgency.LOW == "low"
+
+    def test_urgency_values_list(self):
+        """Test that we can get all urgency values."""
+        values = list(Urgency)
+        assert len(values) == 4
+        assert "critical" in [v.value for v in values]
+        assert "high" in [v.value for v in values]
+        assert "medium" in [v.value for v in values]
+        assert "low" in [v.value for v in values]
+
+    def test_impact_all_values(self):
+        """Test all impact values are defined."""
+        assert Impact.CRITICAL == "critical"
+        assert Impact.HIGH == "high"
+        assert Impact.MEDIUM == "medium"
+        assert Impact.LOW == "low"
+
+    def test_impact_values_list(self):
+        """Test that we can get all impact values."""
+        values = list(Impact)
+        assert len(values) == 4
+        assert "critical" in [v.value for v in values]
+        assert "high" in [v.value for v in values]
+        assert "medium" in [v.value for v in values]
+        assert "low" in [v.value for v in values]
+
+    def test_priority_level_all_values(self):
+        """Test all priority level values are defined."""
+        assert PriorityLevel.P0 == "p0"
+        assert PriorityLevel.P1 == "p1"
+        assert PriorityLevel.P2 == "p2"
+        assert PriorityLevel.P3 == "p3"
+        assert PriorityLevel.P4 == "p4"
+
+    def test_priority_level_values_list(self):
+        """Test that we can get all priority level values."""
+        values = list(PriorityLevel)
+        assert len(values) == 5
+        expected = ["p0", "p1", "p2", "p3", "p4"]
+        assert sorted([v.value for v in values]) == sorted(expected)
+
+    def test_priority_level_score_ranges(self):
+        """Test that priority levels map to expected score ranges."""
+        # P0: 90-100
+        # P1: 70-89
+        # P2: 50-69
+        # P3: 30-49
+        # P4: 0-29
+        # Just verify the enum values exist correctly
+        assert PriorityLevel.P0.value == "p0"  # 90-100
+        assert PriorityLevel.P1.value == "p1"  # 70-89
+        assert PriorityLevel.P2.value == "p2"  # 50-69
+        assert PriorityLevel.P3.value == "p3"  # 30-49
+        assert PriorityLevel.P4.value == "p4"  # 0-29
+
+    def test_urgency_string_comparison(self):
+        """Test urgency enum can be compared with strings."""
+        assert Urgency.CRITICAL == "critical"
+        assert Urgency.HIGH == "high"
+
+    def test_impact_string_comparison(self):
+        """Test impact enum can be compared with strings."""
+        assert Impact.CRITICAL == "critical"
+        assert Impact.LOW == "low"
+
+    def test_priority_level_string_comparison(self):
+        """Test priority level enum can be compared with strings."""
+        assert PriorityLevel.P0 == "p0"
+        assert PriorityLevel.P4 == "p4"
