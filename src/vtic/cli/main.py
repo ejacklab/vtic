@@ -12,6 +12,7 @@ from rich.table import Table
 from vtic.config import load_config
 from vtic.errors import VticError
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
+from vtic.search import TicketSearch
 from vtic.storage import TicketStore
 from vtic.utils import normalize_tags, parse_repo, slugify, utc_now
 
@@ -148,6 +149,48 @@ def list_tickets(
                 ticket.severity.value,
                 ticket.status.value,
                 ticket.repo,
+            )
+        console.print(table)
+    except VticError as exc:
+        _exit_with_error(exc)
+
+
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Search query text"),
+    severity: Severity | None = typer.Option(None, "--severity", help="Filter by severity"),
+    repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
+    category: Category | None = typer.Option(None, "--category", help="Filter by category"),
+    status: Status | None = typer.Option(None, "--status", help="Filter by status"),
+    dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
+) -> None:
+    """Search tickets by keyword."""
+    try:
+        store = _resolve_store(dir)
+        filters = SearchFilters(
+            severity=[severity] if severity else None,
+            repo=[repo] if repo else None,
+            category=[category] if category else None,
+            status=[status] if status else None,
+        )
+        engine = TicketSearch(store)
+        response = engine.search(query, filters=filters)
+
+        if not response.results:
+            console.print("[yellow]No results found.[/yellow]")
+            return
+
+        table = Table(title=f"Search Results ({response.total} matches, {response.took_ms}ms)")
+        for column in ("Score", "ID", "Title", "Severity", "Status", "Repo"):
+            table.add_column(column)
+        for result in response.results:
+            table.add_row(
+                f"{result.score:.2f}",
+                result.id,
+                result.title,
+                result.severity,
+                result.status,
+                result.repo,
             )
         console.print(table)
     except VticError as exc:
