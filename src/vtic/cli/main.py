@@ -220,6 +220,23 @@ def update(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind address"),
+    port: int = typer.Option(8900, "--port", help="Server port"),
+    dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
+) -> None:
+    """Start the HTTP API server."""
+
+    import uvicorn
+    from vtic.api import create_app
+
+    config = load_config()
+    tickets_dir = dir or config.tickets.dir
+    app_instance = create_app(str(tickets_dir))
+    uvicorn.run(app_instance, host=host, port=port)
+
+
+@app.command()
 def delete(
     id: str = typer.Option(..., "--id", help="Ticket ID"),
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation"),
