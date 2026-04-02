@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from .config import VticConfig
 from .models import Ticket, TicketCreate, TicketUpdate
+from .storage import TicketStore
 
 __version__ = "0.1.0"
 
@@ -23,5 +24,5 @@ __all__ = [
     "TicketUpdate",
     "TicketService",
     "VticConfig",
+    "TicketStore",
 ]
-
