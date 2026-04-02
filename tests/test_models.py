@@ -34,6 +34,15 @@ def test_enum_values_and_string_comparison() -> None:
     assert set(get_args(CategoryLiteral)) == {category.value for category in Category}
 
 
+def test_all_enum_values() -> None:
+    assert len(Severity) == 4
+    assert len(Status) == 6
+    assert len(Category) == 15
+    assert Severity.LOW.value == "low"
+    assert Status.WONT_FIX.value == "wont_fix"
+    assert Category.DEPENDENCIES.value == "dependencies"
+
+
 def test_category_prefixes_completeness() -> None:
     assert set(CATEGORY_PREFIXES) == set(Category)
     assert CATEGORY_PREFIXES == CONSTANT_CATEGORY_PREFIXES
@@ -144,6 +153,32 @@ def test_ticket_create_validation_rejects_empty_title() -> None:
         TicketCreate(title="   ", repo="owner/repo")
 
 
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        (
+            {"title": "", "repo": "owner/repo"},
+            "Title cannot be empty",
+        ),
+        (
+            {"title": "   ", "repo": "owner/repo"},
+            "Title cannot be empty",
+        ),
+        (
+            {"title": "Valid title", "repo": "noslash"},
+            "Invalid repo format",
+        ),
+        (
+            {"title": "Valid title", "repo": "owner/repo", "severity": "urgent"},
+            "Input should be",
+        ),
+    ],
+)
+def test_ticket_validation_edge_cases(payload: dict[str, object], match: str) -> None:
+    with pytest.raises(PydanticValidationError, match=match):
+        TicketCreate(**payload)
+
+
 def test_ticket_update_forbids_extra_fields() -> None:
     with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
         TicketUpdate(title="Updated", invalid="field")
@@ -180,6 +215,21 @@ def test_ticket_properties(sample_ticket: Ticket, tmp_path: Path) -> None:
     )
 
 
+def test_search_text_includes_fix(sample_timestamp: datetime) -> None:
+    ticket = Ticket(
+        id="C1",
+        title="Shared helper cleanup",
+        description="Move auth helpers into one place.",
+        fix="Extract helpers into a common module.",
+        repo="owner/repo",
+        created_at=sample_timestamp,
+        updated_at=sample_timestamp,
+        slug="shared-helper-cleanup",
+    )
+
+    assert "Extract helpers into a common module." in ticket.search_text
+
+
 def test_terminal_status_property(sample_timestamp: datetime) -> None:
     ticket = Ticket(
         id="C9",
@@ -198,4 +248,3 @@ def test_terminal_status_property(sample_timestamp: datetime) -> None:
 def test_slugify_helper_is_stable() -> None:
     assert Ticket._slugify("Hello, World!!!") == "hello-world"
     assert Ticket._slugify("Already---Slugged") == "already-slugged"
-

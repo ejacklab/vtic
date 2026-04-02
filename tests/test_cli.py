@@ -53,6 +53,56 @@ def test_create_ticket(tmp_path: Path) -> None:
     assert ticket_path.exists()
 
 
+def test_init_command(tmp_path: Path) -> None:
+    tickets_dir = tmp_path / "initialized-tickets"
+
+    result = runner.invoke(app, ["init", "--dir", str(tickets_dir)], env=_env(tmp_path))
+
+    assert result.exit_code == 0
+    assert tickets_dir.exists()
+    assert tickets_dir.is_dir()
+
+
+def test_create_command_all_flags(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "--repo",
+            "ejacklab/open-dsearch",
+            "--category",
+            "security",
+            "--severity",
+            "critical",
+            "--title",
+            "CORS Wildcard in Production",
+            "--description",
+            "All FastAPI services use allow_origins=['*'].",
+            "--file",
+            "backend/api-gateway/main.py:27-32",
+            "--tags",
+            "cors,security,fastapi",
+        ],
+        env=_env(tmp_path),
+    )
+
+    assert result.exit_code == 0
+    assert (
+        tmp_path
+        / "tickets"
+        / "ejacklab"
+        / "open-dsearch"
+        / "security"
+        / "S1-cors-wildcard-in-production.md"
+    ).exists()
+
+
+def test_create_missing_required_field_raises(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["create", "--title", "Missing repo"], env=_env(tmp_path))
+
+    assert result.exit_code != 0
+
+
 def test_get_ticket(tmp_path: Path) -> None:
     runner.invoke(
         app,

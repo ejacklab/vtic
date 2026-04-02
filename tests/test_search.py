@@ -112,6 +112,33 @@ def test_keyword_search(store: TicketStore) -> None:
     assert response.results[0].score > 0
 
 
+def test_single_term_search(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+
+    response = engine.search("tls")
+
+    assert response.total == 1
+    assert response.results[0].id == "S5"
+
+
+def test_multi_term_search(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+
+    response = engine.search("analytics worker")
+
+    assert response.results
+    assert response.results[0].id == "P3"
+
+
+def test_partial_match(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+
+    response = engine.search("analytics-worker")
+
+    assert response.results
+    assert response.results[0].id == "P3"
+
+
 def test_search_with_filters(store: TicketStore) -> None:
     engine = TicketSearch(store)
     filters = SearchFilters(severity=[Severity.CRITICAL])
@@ -122,6 +149,19 @@ def test_search_with_filters(store: TicketStore) -> None:
     assert response.total == 2
     assert all(result.severity == Severity.CRITICAL.value for result in response.results)
     assert [result.id for result in response.results] == ["S1", "S5"]
+
+
+def test_filter_combination(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+    filters = SearchFilters(
+        severity=[Severity.HIGH],
+        status=[Status.IN_PROGRESS],
+    )
+
+    response = engine.search("", filters=filters)
+
+    assert response.total == 1
+    assert [result.id for result in response.results] == ["C2"]
 
 
 def test_empty_results(store: TicketStore) -> None:
@@ -211,3 +251,12 @@ def test_search_highlights(store: TicketStore) -> None:
     assert response.results[0].id == "S1"
     assert "cors" in response.results[0].highlights
     assert "fastapi" in response.results[0].highlights
+
+
+def test_special_characters_in_query(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+
+    response = engine.search("CORS (*)")
+
+    assert response.total >= 1
+    assert response.results[0].id == "S1"
