@@ -89,24 +89,20 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
     def create_ticket(payload: TicketCreate) -> TicketResponse:
         repo_owner, repo_name = parse_repo(payload.repo)
         normalized_repo = f"{repo_owner.lower()}/{repo_name.lower()}"
-        now = utc_now()
-        ticket = Ticket(
-            id=store.next_id(payload.category),
+        ticket = store.create_ticket(
             title=payload.title,
-            description=payload.description,
-            fix=payload.fix,
             repo=normalized_repo,
             owner=payload.owner or repo_owner.lower(),
             category=payload.category,
             severity=payload.severity,
             status=payload.status,
+            description=payload.description,
+            fix=payload.fix,
             file=payload.file,
             tags=normalize_tags(payload.tags),
-            created_at=now,
-            updated_at=now,
             slug=slugify(payload.title),
         )
-        return TicketResponse.from_ticket(store.create(ticket))
+        return TicketResponse.from_ticket(ticket)
 
     @app.get(
         "/tickets",

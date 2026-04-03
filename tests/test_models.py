@@ -13,6 +13,7 @@ from vtic.models import (
     CATEGORY_PREFIXES,
     Category,
     CategoryLiteral,
+    SearchRequest,
     Severity,
     SeverityLiteral,
     Status,
@@ -45,7 +46,7 @@ def test_all_enum_values() -> None:
 
 def test_category_prefixes_completeness() -> None:
     assert set(CATEGORY_PREFIXES) == set(Category)
-    assert CATEGORY_PREFIXES == CONSTANT_CATEGORY_PREFIXES
+    assert {category.value: prefix for category, prefix in CATEGORY_PREFIXES.items()} == CONSTANT_CATEGORY_PREFIXES
     assert CATEGORY_PREFIXES[Category.CODE_QUALITY] == "C"
     assert CATEGORY_PREFIXES[Category.SECURITY] == "S"
     assert CATEGORY_PREFIXES[Category.API] == "X"
@@ -82,6 +83,21 @@ def test_ticket_defaults_and_validators(sample_timestamp: datetime) -> None:
     assert ticket.severity is Severity.MEDIUM
     assert ticket.status is Status.OPEN
     assert ticket.tags == ["auth", "refactor"]
+
+
+def test_ticket_normalizes_newlines_in_title_and_owner(sample_timestamp: datetime) -> None:
+    ticket = Ticket(
+        id="C8",
+        title="Needs\ncleanup",
+        repo="owner/repo",
+        owner="smoke\n01",
+        created_at=sample_timestamp,
+        updated_at=sample_timestamp,
+        slug="needs-cleanup",
+    )
+
+    assert ticket.title == "Needs cleanup"
+    assert ticket.owner == "smoke 01"
 
 
 @pytest.mark.parametrize(
@@ -153,6 +169,11 @@ def test_ticket_create_validation_rejects_empty_title() -> None:
         TicketCreate(title="   ", repo="owner/repo")
 
 
+def test_ticket_create_rejects_repo_path_traversal() -> None:
+    with pytest.raises(PydanticValidationError, match="Repo path segments cannot be '.' or '..'"):
+        TicketCreate(title="Traversal", repo="../escape")
+
+
 @pytest.mark.parametrize(
     ("payload", "match"),
     [
@@ -182,6 +203,21 @@ def test_ticket_validation_edge_cases(payload: dict[str, object], match: str) ->
 def test_ticket_update_forbids_extra_fields() -> None:
     with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
         TicketUpdate(title="Updated", invalid="field")
+
+
+def test_ticket_create_forbids_extra_fields() -> None:
+    with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
+        TicketCreate(title="Valid", repo="owner/repo", unexpected="value")
+
+
+def test_search_request_forbids_extra_fields() -> None:
+    with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
+        SearchRequest(query="auth", unexpected="value")
+
+
+def test_search_request_rejects_semantic_true() -> None:
+    with pytest.raises(PydanticValidationError, match="Semantic search is not yet implemented"):
+        SearchRequest(query="auth", semantic=True)
 
 
 def test_ticket_response_from_ticket(sample_ticket: Ticket) -> None:

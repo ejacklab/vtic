@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from vtic.config import VticConfig, load_config
+from vtic.errors import ConfigError
 
 
 def test_config_defaults() -> None:
@@ -98,3 +101,24 @@ port = 8901
     assert config.tickets.dir == (tmp_path / "toml-tickets").resolve()
     assert config.server.host == "127.0.0.2"
     assert config.server.port == 9000
+
+
+def test_config_from_env_invalid_int_raises_config_error(monkeypatch) -> None:
+    monkeypatch.setenv("VTIC_SERVER_PORT", "not-a-port")
+
+    with pytest.raises(ConfigError, match="Invalid environment configuration"):
+        VticConfig.from_env()
+
+
+def test_config_from_toml_invalid_value_raises_config_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "vtic.toml"
+    config_path.write_text(
+        """
+[server]
+port = "bad"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="Invalid config file"):
+        VticConfig.from_toml(config_path)

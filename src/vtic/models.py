@@ -70,24 +70,11 @@ CategoryLiteral = Literal[
     "other",
 ]
 
-CATEGORY_PREFIXES: dict[Category, str] = {
-    Category.CODE_QUALITY: "C",
-    Category.SECURITY: "S",
-    Category.AUTH: "A",
-    Category.INFRASTRUCTURE: "I",
-    Category.DOCUMENTATION: "D",
-    Category.TESTING: "T",
-    Category.PERFORMANCE: "P",
-    Category.FRONTEND: "F",
-    Category.CONFIGURATION: "N",
-    Category.API: "X",
-    Category.DATA: "M",
-    Category.UI: "U",
-    Category.DEPENDENCIES: "Y",
-    Category.BUILD: "B",
-    Category.OTHER: "O",
-}
+from .constants import CATEGORY_PREFIXES as CATEGORY_PREFIXES_RAW
 
+CATEGORY_PREFIXES: dict[Category, str] = {
+    Category(category_name): prefix for category_name, prefix in CATEGORY_PREFIXES_RAW.items()
+}
 
 class VticBaseModel(BaseModel):
     """Base model with common configuration for all vtic models."""
@@ -152,7 +139,7 @@ class Ticket(VticBaseModel):
     @field_validator("title", mode="before")
     @classmethod
     def validate_title_not_empty(cls, v: str) -> str:
-        v = v.strip()
+        v = cls._normalize_single_line(v)
         if not v or not v.strip():
             raise ValueError("Title cannot be empty")
         return v
@@ -160,12 +147,15 @@ class Ticket(VticBaseModel):
     @field_validator("repo", mode="before")
     @classmethod
     def validate_repo_format(cls, v: str) -> str:
-        if "/" not in v:
-            raise ValueError(f"Invalid repo format: {v}. Expected: 'owner/repo'")
-        parts = v.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise ValueError(f"Invalid repo format: {v}. Expected: 'owner/repo'")
-        return v.lower()
+        return cls._normalize_repo(v)
+
+    @field_validator("owner", mode="before")
+    @classmethod
+    def validate_owner_single_line(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = cls._normalize_single_line(v)
+        return normalized or None
 
     @field_validator("tags")
     @classmethod
@@ -186,6 +176,22 @@ class Ticket(VticBaseModel):
         if self.updated_at < self.created_at:
             raise ValueError("updated_at cannot be earlier than created_at")
         return self
+
+    @staticmethod
+    def _normalize_single_line(value: str) -> str:
+        return " ".join(str(value).splitlines()).strip()
+
+    @classmethod
+    def _normalize_repo(cls, value: str) -> str:
+        raw = str(value).strip()
+        if "/" not in raw:
+            raise ValueError(f"Invalid repo format: {raw}. Expected: 'owner/repo'")
+        parts = raw.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise ValueError(f"Invalid repo format: {raw}. Expected: 'owner/repo'")
+        if any(part in {".", ".."} for part in parts):
+            raise ValueError("Repo path segments cannot be '.' or '..'")
+        return raw.lower()
 
     @staticmethod
     def _slugify(text: str) -> str:
@@ -232,10 +238,17 @@ class TicketCreate(VticBaseModel):
     file: Optional[str] = Field(default=None, max_length=500)
     tags: list[str] = Field(default_factory=list, description="Searchable tags (max 50 items)")
 
+    model_config = ConfigDict(
+        populate_by_name=True,
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        extra="forbid",
+    )
+
     @field_validator("title", mode="before")
     @classmethod
     def validate_title_not_empty(cls, v: str) -> str:
-        v = v.strip()
+        v = Ticket._normalize_single_line(v)
         if not v or not v.strip():
             raise ValueError("Title cannot be empty")
         return v
@@ -243,9 +256,15 @@ class TicketCreate(VticBaseModel):
     @field_validator("repo", mode="before")
     @classmethod
     def validate_repo_format(cls, v: str) -> str:
-        if "/" not in v:
-            raise ValueError(f"Invalid repo format: {v}. Expected: 'owner/repo'")
-        return v.lower()
+        return Ticket._normalize_repo(v)
+
+    @field_validator("owner", mode="before")
+    @classmethod
+    def validate_owner_single_line(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = Ticket._normalize_single_line(v)
+        return normalized or None
 
 
 class TicketUpdate(VticBaseModel):
@@ -272,10 +291,18 @@ class TicketUpdate(VticBaseModel):
     @classmethod
     def validate_title_not_empty(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            v = v.strip()
+            v = Ticket._normalize_single_line(v)
         if v is not None and not v.strip():
             raise ValueError("Title cannot be empty")
         return v if v else v
+
+    @field_validator("owner", mode="before")
+    @classmethod
+    def validate_owner_single_line(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = Ticket._normalize_single_line(v)
+        return normalized or None
 
 
 class TicketResponse(VticBaseModel):
@@ -346,13 +373,25 @@ class SearchRequest(VticBaseModel):
     semantic: bool = Field(default=False, description="Enable semantic search")
     topk: int = Field(default=10, ge=1, le=100, description="Max results to return")
     offset: int = Field(default=0, ge=0, description="Number of results to skip")
-    sort_by: str = Field(default="relevance", pattern=r"^(relevance|created_at|updated_at|severity|status)$")
-    sort_order: str = Field(default="desc", pattern=r"^(asc|desc)$")
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        extra="forbid",
+    )
 
     @field_validator("query")
     @classmethod
     def validate_query(cls, v: str) -> str:
         return v.strip()
+
+    @field_validator("semantic")
+    @classmethod
+    def validate_semantic_not_supported(cls, v: bool) -> bool:
+        if v:
+            raise ValueError("Semantic search is not yet implemented")
+        return v
 
 
 class SearchResult(VticBaseModel):

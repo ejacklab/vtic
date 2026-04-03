@@ -14,7 +14,7 @@ from vtic.errors import VticError
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from vtic.search import TicketSearch
 from vtic.storage import TicketStore
-from vtic.utils import normalize_tags, parse_repo, slugify, utc_now
+from vtic.utils import normalize_tags, parse_repo, slugify
 
 app = typer.Typer(help="vtic CLI")
 console = Console()
@@ -82,24 +82,20 @@ def create(
 
     try:
         store = _resolve_store(dir)
-        now = utc_now()
         owner, _ = parse_repo(repo)
-        ticket = Ticket(
-            id=store.next_id(category),
+        ticket = store.create_ticket(
             title=title,
-            description=description,
             repo=repo,
             owner=owner,
             category=category,
             severity=severity,
             status=Status.OPEN,
+            description=description,
+            fix=None,
             file=file,
             tags=normalize_tags(tags.split(",")) if tags else [],
-            created_at=now,
-            updated_at=now,
             slug=slugify(title),
         )
-        store.create(ticket)
         _print_ticket(ticket, "Created Ticket")
     except VticError as exc:
         _exit_with_error(exc)

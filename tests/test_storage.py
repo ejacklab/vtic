@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Barrier
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -79,7 +81,7 @@ def test_create_writes_markdown_file(tmp_path: Path) -> None:
     assert "repo: owner/repo" in content
     assert "category: code_quality" in content
     assert "Refactor duplicate helper implementations." in content
-    assert "## Fix" in content
+    assert "<!-- FIX -->" in content
     assert "Extract a shared helper module." in content
 
 
@@ -150,6 +152,35 @@ def test_concurrent_id_generation(tmp_path: Path) -> None:
     assert first != second
 
 
+def test_create_ticket_is_atomic_under_concurrency(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    barrier = Barrier(8)
+
+    def create_one(index: int) -> str:
+        barrier.wait()
+        ticket = store.create_ticket(
+            title=f"Concurrent ticket {index}",
+            repo="owner/repo",
+            owner="owner",
+            category=Category.CODE_QUALITY,
+            severity=Severity.MEDIUM,
+            status=Status.OPEN,
+            description=None,
+            fix=None,
+            file=None,
+            tags=[],
+            slug=f"concurrent-ticket-{index}",
+        )
+        return ticket.id
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        ids = list(executor.map(create_one, range(8)))
+
+    assert sorted(ids) == [f"C{i}" for i in range(1, 9)]
+    assert len({*ids}) == 8
+    assert len(list((tmp_path / "tickets").rglob("*.md"))) == 8
+
+
 def test_list_empty(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
 
@@ -173,6 +204,28 @@ def test_create_uses_expected_nested_path(tmp_path: Path) -> None:
     )
 
 
+def test_ticket_path_rejects_repo_path_escape(tmp_path: Path, sample_timestamp: datetime) -> None:
+    ticket = Ticket.model_construct(
+        id="C1",
+        title="Escape",
+        description=None,
+        fix=None,
+        repo="../repo",
+        owner="owner",
+        category=Category.CODE_QUALITY,
+        severity=Severity.MEDIUM,
+        status=Status.OPEN,
+        file=None,
+        tags=[],
+        created_at=sample_timestamp,
+        updated_at=sample_timestamp,
+        slug="escape",
+    )
+
+    with pytest.raises(ValueError, match="Repo path segments cannot be '.' or '..'"):
+        ticket_path(tmp_path / "tickets", ticket)
+
+
 def test_create_without_fix_omits_fix_section(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Plain body", description="Only description text.")
@@ -181,7 +234,7 @@ def test_create_without_fix_omits_fix_section(tmp_path: Path) -> None:
 
     content = ticket_path(store.base_dir, ticket).read_text(encoding="utf-8")
     assert "Only description text." in content
-    assert "## Fix" not in content
+    assert "<!-- FIX -->" not in content
 
 
 def test_get_is_case_insensitive_for_id_lookup(tmp_path: Path) -> None:
@@ -220,6 +273,22 @@ def test_update_can_change_description_and_fix(tmp_path: Path) -> None:
     assert updated.fix == "Apply a shared abstraction."
     assert "New description" in content
     assert "Apply a shared abstraction." in content
+
+
+def test_description_preserves_literal_fix_heading(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket(
+        "C1",
+        title="Literal heading",
+        description="Keep this heading:\n## Fix\ninside the description.",
+        fix="Actual fix body.",
+    )
+    store.create(ticket)
+
+    loaded = store.get("C1")
+
+    assert loaded.description == "Keep this heading:\n## Fix\ninside the description."
+    assert loaded.fix == "Actual fix body."
 
 
 def test_update_can_change_category_and_move_file(tmp_path: Path) -> None:
@@ -273,6 +342,16 @@ def test_list_filters_by_repo_status_and_tags(tmp_path: Path) -> None:
             tags=["auth", "api"],
         )
     )
+
+    assert [ticket.id for ticket in results] == ["C1"]
+
+
+def test_list_filters_repo_wildcards(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    store.create(_make_ticket("C1", title="Match wildcard", repo="ejacklab/core"))
+    store.create(_make_ticket("C2", title="No match", repo="other/core"))
+
+    results = store.list(SearchFilters(repo=["ejacklab/*"]))
 
     assert [ticket.id for ticket in results] == ["C1"]
 

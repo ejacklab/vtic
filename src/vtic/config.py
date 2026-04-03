@@ -10,6 +10,7 @@ from typing import Literal, Self
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .constants import DEFAULT_CONFIG_FILENAME, DEFAULT_GLOBAL_CONFIG_PATH
+from .errors import ConfigError
 
 
 class TicketsConfig(BaseModel):
@@ -73,38 +74,44 @@ class VticConfig(BaseModel):
 
     @classmethod
     def from_toml(cls, path: Path) -> "VticConfig":
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
-        if "tickets" in data and "dir" in data["tickets"]:
-            ticket_dir = Path(data["tickets"]["dir"])
-            if not ticket_dir.is_absolute():
-                data["tickets"]["dir"] = path.parent / ticket_dir
-        return cls(**data)
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+            if "tickets" in data and "dir" in data["tickets"]:
+                ticket_dir = Path(data["tickets"]["dir"])
+                if not ticket_dir.is_absolute():
+                    data["tickets"]["dir"] = path.parent / ticket_dir
+            return cls(**data)
+        except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
+            raise ConfigError(f"Invalid config file {path}: {exc}") from exc
 
     @classmethod
     def from_env(cls) -> "VticConfig":
-        config = cls()
+        try:
+            config = cls()
 
-        if tickets_dir := os.getenv("VTIC_TICKETS_DIR"):
-            config.tickets.dir = Path(tickets_dir)
+            if tickets_dir := os.getenv("VTIC_TICKETS_DIR"):
+                config.tickets.dir = Path(tickets_dir)
 
-        if host := os.getenv("VTIC_SERVER_HOST"):
-            config.server.host = host
-        if port := os.getenv("VTIC_SERVER_PORT"):
-            config.server.port = int(port)
+            if host := os.getenv("VTIC_SERVER_HOST"):
+                config.server.host = host
+            if port := os.getenv("VTIC_SERVER_PORT"):
+                config.server.port = int(port)
 
-        if bm25 := os.getenv("VTIC_SEARCH_BM25_ENABLED"):
-            config.search.bm25_enabled = bm25.lower() in ("true", "1", "yes")
-        if semantic := os.getenv("VTIC_SEARCH_SEMANTIC_ENABLED"):
-            config.search.semantic_enabled = semantic.lower() in ("true", "1", "yes")
-        if provider := os.getenv("VTIC_SEARCH_EMBEDDING_PROVIDER"):
-            config.search.embedding_provider = provider
-        if model := os.getenv("VTIC_SEARCH_EMBEDDING_MODEL"):
-            config.search.embedding_model = model
-        if dims := os.getenv("VTIC_SEARCH_EMBEDDING_DIMENSIONS"):
-            config.search.embedding_dimensions = int(dims)
+            if bm25 := os.getenv("VTIC_SEARCH_BM25_ENABLED"):
+                config.search.bm25_enabled = bm25.lower() in ("true", "1", "yes")
+            if semantic := os.getenv("VTIC_SEARCH_SEMANTIC_ENABLED"):
+                config.search.semantic_enabled = semantic.lower() in ("true", "1", "yes")
+            if provider := os.getenv("VTIC_SEARCH_EMBEDDING_PROVIDER"):
+                config.search.embedding_provider = provider
+            if model := os.getenv("VTIC_SEARCH_EMBEDDING_MODEL"):
+                config.search.embedding_model = model
+            if dims := os.getenv("VTIC_SEARCH_EMBEDDING_DIMENSIONS"):
+                config.search.embedding_dimensions = int(dims)
 
-        return config
+            return config
+        except ValueError as exc:
+            raise ConfigError(f"Invalid environment configuration: {exc}") from exc
 
 
 def resolve_config_path() -> Path | None:

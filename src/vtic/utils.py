@@ -40,6 +40,8 @@ def parse_repo(repo: str) -> tuple[str, str]:
     parts = repo.split("/")
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError(f"Invalid repo format: {repo}. Expected: 'owner/repo'")
+    if any(part in {".", ".."} for part in parts):
+        raise ValueError("Repo path segments cannot be '.' or '..'")
     return parts[0], parts[1]
 
 
@@ -60,5 +62,8 @@ def ticket_path(root: Path, ticket: Ticket) -> Path:
     """Build the on-disk path for a ticket."""
 
     owner, repo_name = parse_repo(ticket.repo)
-    return root / owner / repo_name / ticket.category.value / ticket.filename
-
+    base_dir = root.resolve()
+    resolved_path = (root / owner / repo_name / ticket.category.value / ticket.filename).resolve()
+    if not resolved_path.is_relative_to(base_dir):
+        raise ValueError(f"Ticket path escapes base directory: {resolved_path}")
+    return resolved_path

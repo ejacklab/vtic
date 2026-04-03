@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import fcntl
+import fnmatch
 from datetime import datetime
 from pathlib import Path
 
-from .constants import CATEGORY_PREFIXES
+import yaml
+
 from .errors import (
     TicketAlreadyExistsError,
     TicketDeleteError,
@@ -13,8 +16,12 @@ from .errors import (
     TicketReadError,
     TicketWriteError,
 )
-from .models import Category, SearchFilters, Ticket, TicketUpdate
+from .models import CATEGORY_PREFIXES, Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from .utils import isoformat_z, normalize_tags, ticket_path, utc_now
+
+
+DESCRIPTION_DELIMITER = "<!-- DESCRIPTION -->"
+FIX_DELIMITER = "<!-- FIX -->"
 
 
 class TicketStore:
@@ -25,16 +32,48 @@ class TicketStore:
 
     def create(self, ticket: Ticket) -> Ticket:
         path = ticket_path(self.base_dir, ticket)
-        if path.exists():
-            raise TicketAlreadyExistsError(ticket.id)
-
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(self._serialize_ticket(ticket), encoding="utf-8")
-        except OSError as exc:
-            raise TicketWriteError(ticket.id, str(exc)) from exc
-
+        self._write_ticket(ticket, path)
         return ticket
+
+    def create_ticket(
+        self,
+        *,
+        title: str,
+        repo: str,
+        owner: str | None,
+        category: Category,
+        severity: Severity,
+        status: Status,
+        description: str | None,
+        fix: str | None,
+        file: str | None,
+        tags: list[str],
+        slug: str,
+    ) -> Ticket:
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.base_dir / ".vtic.lock"
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            ticket_id = self.next_id(category)
+            now = utc_now()
+            ticket = Ticket(
+                id=ticket_id,
+                title=title,
+                description=description,
+                fix=fix,
+                repo=repo,
+                owner=owner,
+                category=category,
+                severity=severity,
+                status=status,
+                file=file,
+                tags=tags,
+                created_at=now,
+                updated_at=now,
+                slug=slug,
+            )
+            self._write_ticket(ticket, ticket_path(self.base_dir, ticket))
+            return ticket
 
     def get(self, ticket_id: str) -> Ticket:
         _, path = self._find_ticket_path(ticket_id)
@@ -132,32 +171,12 @@ class TicketStore:
 
     @staticmethod
     def _parse_frontmatter(frontmatter: str) -> dict[str, object]:
-        data: dict[str, object] = {}
-        current_key: str | None = None
-        tags: list[str] = []
+        loaded = yaml.safe_load(frontmatter) or {}
+        if not isinstance(loaded, dict):
+            raise ValueError("Frontmatter must be a mapping")
 
-        for line in frontmatter.splitlines():
-            if not line.strip():
-                continue
-            if line.startswith("  - "):
-                if current_key != "tags":
-                    raise ValueError("Unexpected list entry in frontmatter")
-                tags.append(line[4:].strip())
-                continue
-            if ":" not in line:
-                raise ValueError(f"Invalid frontmatter line: {line}")
-
-            key, value = line.split(":", 1)
-            key = key.strip()
-            value = value.strip()
-            current_key = key
-            if key == "tags":
-                tags = []
-                data[key] = tags
-            else:
-                data[key] = value or None
-
-        data["tags"] = normalize_tags(tags)
+        data = dict(loaded)
+        data["tags"] = normalize_tags([str(tag) for tag in data.get("tags", []) or []])
         for field in ("category", "severity", "status"):
             if data.get(field) is None:
                 raise ValueError(f"Missing required field: {field}")
@@ -175,12 +194,32 @@ class TicketStore:
         if not stripped:
             return None, None
 
-        fix_marker = "\n## Fix\n"
-        if fix_marker in stripped:
-            description, fix = stripped.split(fix_marker, 1)
-            return description.strip() or None, fix.strip() or None
+        lines = stripped.splitlines()
+        description: list[str] = []
+        fix: list[str] = []
+        current: list[str] | None = None
+        saw_marker = False
 
-        return stripped, None
+        for line in lines:
+            if line == DESCRIPTION_DELIMITER:
+                current = description
+                saw_marker = True
+                continue
+            if line == FIX_DELIMITER:
+                current = fix
+                saw_marker = True
+                continue
+            if current is None:
+                continue
+            current.append(line)
+
+        description_text = "\n".join(description).strip() or None
+        fix_text = "\n".join(fix).strip() or None
+        if description_text is None and fix_text is None:
+            if saw_marker:
+                return None, None
+            return stripped or None, None
+        return description_text, fix_text
 
     @staticmethod
     def _slug_from_path(path: Path, ticket_id: str) -> str:
@@ -190,37 +229,44 @@ class TicketStore:
         return path.stem[len(prefix) :]
 
     def _serialize_ticket(self, ticket: Ticket) -> str:
-        lines = [
-            "---",
-            f"id: {ticket.id}",
-            f"title: {ticket.title}",
-            f"repo: {ticket.repo}",
-            f"category: {ticket.category.value}",
-            f"severity: {ticket.severity.value}",
-            f"status: {ticket.status.value}",
-            f"owner: {ticket.owner}" if ticket.owner else "owner:",
-            f"file: {ticket.file}" if ticket.file else "file:",
-            f"created_at: {isoformat_z(ticket.created_at)}",
-            f"updated_at: {isoformat_z(ticket.updated_at)}",
-            "tags:",
-        ]
-        lines.extend(f"  - {tag}" for tag in ticket.tags)
-        lines.extend(["---", ""])
+        frontmatter = {
+            "id": ticket.id,
+            "title": ticket.title,
+            "repo": ticket.repo,
+            "category": ticket.category.value,
+            "severity": ticket.severity.value,
+            "status": ticket.status.value,
+            "owner": ticket.owner,
+            "file": ticket.file,
+            "created_at": isoformat_z(ticket.created_at),
+            "updated_at": isoformat_z(ticket.updated_at),
+            "tags": ticket.tags,
+        }
+        lines = ["---", yaml.safe_dump(frontmatter, sort_keys=False).strip(), "---", ""]
+        lines.append(DESCRIPTION_DELIMITER)
         if ticket.description:
             lines.append(ticket.description.strip())
-            lines.append("")
         if ticket.fix:
-            lines.append("## Fix")
             lines.append("")
+            lines.append(FIX_DELIMITER)
             lines.append(ticket.fix.strip())
-            lines.append("")
         return "\n".join(lines).rstrip() + "\n"
+
+    def _write_ticket(self, ticket: Ticket, path: Path) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(self._serialize_ticket(ticket))
+        except FileExistsError as exc:
+            raise TicketAlreadyExistsError(ticket.id) from exc
+        except OSError as exc:
+            raise TicketWriteError(ticket.id, str(exc)) from exc
 
     @staticmethod
     def _matches_filters(ticket: Ticket, filters: SearchFilters | None) -> bool:
         if filters is None:
             return True
-        if filters.repo and ticket.repo not in filters.repo:
+        if filters.repo and not any(fnmatch.fnmatch(ticket.repo, pattern) for pattern in filters.repo):
             return False
         if filters.category and ticket.category not in filters.category:
             return False

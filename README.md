@@ -1,6 +1,6 @@
 # vtic
 
-> Lightweight, local-first ticket system with vector search. Built on [Zvec](https://github.com/alibaba/zvec).
+> Lightweight, local-first ticket system with markdown-backed storage, a CLI, and an HTTP API.
 
 **Zero infrastructure.** No database server, no Docker, no cloud service. `pip install vtic` and go.
 
@@ -8,20 +8,18 @@
 
 Traditional ticket systems store issues in databases — great for CRUD, terrible for search. Finding "all auth-related security issues across 5 repos" means reading every ticket, every label, every description.
 
-**vtic** stores tickets as markdown files on disk (durable, git-trackable) and indexes them with Zvec for instant hybrid search:
+**vtic** stores tickets as markdown files on disk (durable, git-trackable) and provides in-process keyword search:
 
-- **Keyword search** (BM25) — exact matches on ticket IDs, file paths, error codes. Built-in, zero config.
-- **Semantic search** (dense embeddings) — find tickets by meaning, not just keywords. Optional, plug in any embedding provider.
+- **Keyword search** (BM25-style scoring) — exact and near-exact matches on ticket IDs, file paths, and descriptions.
+- **Structured filtering** — filter by repo, severity, status, category, owner, tags, and dates.
 
 No web UI needed. No browser tab open. Just an API and a CLI.
 
 ## Features
 
-- 🚀 **Hybrid search** — BM25 + dense vectors in a single query
+- 🚀 **Keyword search** — built-in search over ticket content and metadata
 - 📁 **Markdown files** — tickets live on disk, git-friendly, human-readable
-- 🔍 **Semantic queries** — "show me all CORS-related issues" without exact keywords
 - 🏷️ **Structured filtering** — filter by repo, severity, status, category, date
-- 🔌 **Pluggable embeddings** — bring your own (OpenAI, local model, or skip entirely)
 - ⚡ **In-process** — no server to manage, just Python
 - 📦 **Multi-repo** — organize tickets across any number of repositories
 
@@ -36,10 +34,10 @@ pip install vtic
 ### Initialize
 
 ```bash
-vtic init ./tickets
+vtic init --dir ./tickets
 ```
 
-This creates the ticket storage directory and sets up the Zvec index.
+This creates the ticket storage directory.
 
 ### Create a Ticket
 
@@ -51,23 +49,17 @@ vtic create \
   --title "CORS Wildcard in Production" \
   --description "All FastAPI services use allow_origins=['*']..." \
   --file "backend/api-gateway/main.py:27-32" \
-  --fix "Use ALLOWED_ORIGINS from env..."
+  --tags "cors,security,fastapi"
 ```
 
 ### Search
 
 ```bash
-# Keyword search (BM25, built-in, no config needed)
+# Keyword search
 vtic search "CORS wildcard misconfiguration"
 
-# Filter by fields
-vtic search --severity critical --status open
-
-# Semantic search (requires embedding provider)
-vtic search "authentication vulnerabilities" --semantic
-
-# Combined: semantic + filters
-vtic search "auth issues" --semantic --severity high --repo "ejacklab/*"
+# Query plus filters
+vtic search "auth issues" --severity high --repo "ejacklab/*"
 ```
 
 ### List & Filter
@@ -81,14 +73,14 @@ vtic list --status open --category security
 ### Update
 
 ```bash
-vtic update C1 --status fixed
-vtic update C1 --severity high --description "Updated after partial fix"
+vtic update --id C1 --status fixed
+vtic update --id C1 --severity high --description "Updated after partial fix"
 ```
 
 ### Delete
 
 ```bash
-vtic delete C1
+vtic delete --id C1 --yes
 ```
 
 ## API Server
@@ -107,7 +99,7 @@ vtic serve --host 0.0.0.0 --port 8900
 | `GET` | `/tickets/:id` | Get a ticket |
 | `PATCH` | `/tickets/:id` | Update a ticket |
 | `DELETE` | `/tickets/:id` | Delete a ticket |
-| `POST` | `/search` | Hybrid search |
+| `POST` | `/search` | Keyword search |
 | `GET` | `/tickets` | List with filters |
 
 ### Example
@@ -117,10 +109,9 @@ curl -X POST http://localhost:8900/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "auth security issues",
-    "semantic": true,
     "filters": {
-      "severity": "critical",
-      "status": "open"
+      "severity": ["critical"],
+      "status": ["open"]
     },
     "topk": 10
   }'
@@ -155,25 +146,27 @@ tickets/
 ### Ticket File Format
 
 ```markdown
-# C1 - CORS Wildcard in Production
+---
+id: S1
+title: CORS Wildcard in Production
+repo: ejacklab/open-dsearch
+category: security
+severity: critical
+status: open
+owner: ejacklab
+file: backend/api-gateway/main.py:27-32
+created_at: 2026-03-16T10:00:00Z
+updated_at: 2026-03-16T10:00:00Z
+tags:
+  - cors
+  - security
+---
 
-**Severity:** critical
-**Status:** open
-**Category:** security
-**Repo:** ejacklab/open-dsearch
-**File:** backend/api-gateway/main.py:27-32
-**Created:** 2026-03-16
-**Updated:** 2026-03-16
-
-## Description
+<!-- DESCRIPTION -->
 All FastAPI services use allow_origins=['*'] which enables CSRF attacks.
 
-## Fix
-Use ALLOWED_ORIGINS from environment variable:
-
-```python
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
-```
+<!-- FIX -->
+Use ALLOWED_ORIGINS from environment variable.
 ```
 
 ## Configuration
@@ -185,21 +178,23 @@ Create `vtic.toml` in your project root or `~/.config/vtic/config.toml` globally
 dir = "./tickets"
 
 [search]
-# BM25 is always enabled (zero config)
-# Dense embeddings are optional
-enable_semantic = true
-embedding_provider = "openai"  # "openai" | "local" | "custom"
+# Search configuration schema used by the implementation
+bm25_enabled = true
+semantic_enabled = false
+embedding_provider = "openai"  # "openai" | "local" | "none"
 embedding_model = "text-embedding-3-small"
 embedding_dimensions = 1536
+hybrid_weights_bm25 = 0.7
+hybrid_weights_semantic = 0.3
 
-[api]
+[server]
 host = "127.0.0.1"
 port = 8900
 ```
 
 ### Embedding Providers
 
-#### OpenAI (recommended)
+#### OpenAI
 
 ```bash
 export OPENAI_API_KEY="sk-..."
@@ -227,30 +222,16 @@ embedding_model = "all-MiniLM-L6-v2"
 embedding_dimensions = 384
 ```
 
-#### No Embeddings (BM25 only)
+#### No Embeddings
 
 Just use `vtic` as-is. Keyword search works out of the box.
 
 ## Architecture
 
-```
-┌─────────────────────────────────┐
-│           vtic API / CLI         │
-│   (FastAPI + Typer)             │
-├─────────────┬───────────────────┤
-│  Ticket      │   Search          │
-│  Service     │   Service         │
-│  (CRUD)      │   (hybrid)        │
-├─────────────┼───────────────────┤
-│  Markdown    │   Zvec Index      │
-│  Files       │   (BM25 + dense)  │
-│  (on disk)   │   (on disk)       │
-└─────────────┴───────────────────┘
-```
-
-- **Markdown files** are the source of truth — durable, git-trackable, human-readable
-- **Zvec index** is the search layer — rebuilt from markdown files if corrupted
-- **API** hides all implementation details — callers never see Zvec or embeddings
+- **Markdown files** are the source of truth.
+- **TicketStore** handles on-disk CRUD.
+- **TicketSearch** provides in-process keyword search over stored tickets.
+- **API and CLI** expose the same ticket lifecycle operations.
 
 ## API Design
 
@@ -258,7 +239,6 @@ When designing or extending the vtic REST API, always refer to the [OpenAPI Spec
 
 ## Built With
 
-- [Zvec](https://github.com/alibaba/zvec) — In-process vector database by Alibaba (Proxima engine)
 - [FastAPI](https://fastapi.tiangolo.com/) — HTTP API server
 - [Typer](https://typer.tiangolo.com/) — CLI interface
 - [Pydantic](https://docs.pydantic.dev/) — Data validation

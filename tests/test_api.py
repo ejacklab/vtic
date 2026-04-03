@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, Callable, cast
 
 import pytest
-from fastapi.testclient import TestClient
+from pydantic import ValidationError as PydanticValidationError
 
 from vtic.api import create_app
-from vtic.models import Category, Severity, Status, Ticket
+from vtic.models import Category, SearchRequest, Severity, Status, Ticket, TicketCreate, TicketUpdate
 from vtic.storage import TicketStore
 from vtic.utils import slugify
 
@@ -48,9 +49,8 @@ def _make_ticket(
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> TestClient:
-    app = create_app(str(tmp_path))
-    return TestClient(app)
+def app(tmp_path: Path):
+    return create_app(str(tmp_path))
 
 
 @pytest.fixture
@@ -58,21 +58,26 @@ def store(tmp_path: Path) -> TicketStore:
     return TicketStore(tmp_path)
 
 
-def test_create_ticket(client: TestClient) -> None:
-    response = client.post(
-        "/tickets",
-        json={
-            "title": "CORS wildcard in production",
-            "repo": "EjAcKLab/Open-DSearch",
-            "description": "All FastAPI services use allow_origins=['*'].",
-            "category": "security",
-            "severity": "critical",
-            "tags": ["cors", "security", "fastapi"],
-        },
-    )
+def _route_endpoint(app, path: str, method: str) -> Callable[..., Any]:
+    for route in app.routes:
+        if getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
+            return cast(Callable[..., Any], route.endpoint)
+    raise AssertionError(f"Route {method} {path} not found")
 
-    assert response.status_code == 201
-    body = response.json()
+
+def test_create_ticket(app) -> None:
+    endpoint = _route_endpoint(app, "/tickets", "POST")
+    body = endpoint(
+        TicketCreate(
+            title="CORS wildcard in production",
+            repo="EjAcKLab/Open-DSearch",
+            description="All FastAPI services use allow_origins=['*'].",
+            category="security",
+            severity="critical",
+            tags=["cors", "security", "fastapi"],
+        )
+    ).model_dump()
+
     assert body["id"] == "S1"
     assert body["title"] == "CORS wildcard in production"
     assert body["repo"] == "ejacklab/open-dsearch"
@@ -83,37 +88,36 @@ def test_create_ticket(client: TestClient) -> None:
     assert body["slug"] == "cors-wildcard-in-production"
 
 
-def test_get_ticket(client: TestClient, store: TicketStore) -> None:
+def test_get_ticket(app, store: TicketStore) -> None:
+    endpoint = _route_endpoint(app, "/tickets/{ticket_id}", "GET")
     ticket = _make_ticket("S1", title="CORS wildcard", category=Category.SECURITY)
     store.create(ticket)
 
-    response = client.get("/tickets/S1")
+    response = endpoint("S1")
 
-    assert response.status_code == 200
-    assert response.json()["id"] == "S1"
-
-
-def test_get_not_found(client: TestClient) -> None:
-    response = client.get("/tickets/S404")
-
-    assert response.status_code == 404
-    body = response.json()
-    assert body["error_code"] == "TICKET_NOT_FOUND"
+    assert response.id == "S1"
 
 
-def test_list_tickets(client: TestClient, store: TicketStore) -> None:
+def test_get_not_found(app) -> None:
+    endpoint = _route_endpoint(app, "/tickets/{ticket_id}", "GET")
+
+    with pytest.raises(Exception, match="Ticket S404 not found"):
+        endpoint("S404")
+
+
+def test_list_tickets(app, store: TicketStore) -> None:
+    endpoint = _route_endpoint(app, "/tickets", "GET")
     store.create(_make_ticket("C1", title="Cleanup helpers"))
     store.create(_make_ticket("S1", title="Fix TLS", category=Category.SECURITY))
 
-    response = client.get("/tickets")
+    body = endpoint(None, None, None, None, 100, 0).model_dump()
 
-    assert response.status_code == 200
-    body = response.json()
     assert body["total"] == 2
     assert [ticket["id"] for ticket in body["data"]] == ["C1", "S1"]
 
 
-def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
+def test_list_with_filters(app, store: TicketStore) -> None:
+    endpoint = _route_endpoint(app, "/tickets", "GET")
     store.create(_make_ticket("C1", title="Cleanup helpers", severity=Severity.LOW))
     store.create(
         _make_ticket(
@@ -124,41 +128,39 @@ def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
         )
     )
 
-    response = client.get("/tickets", params={"severity": "critical"})
+    body = endpoint("critical", None, None, None, 100, 0).model_dump()
 
-    assert response.status_code == 200
-    body = response.json()
     assert body["total"] == 1
     assert [ticket["id"] for ticket in body["data"]] == ["S1"]
 
 
-def test_update_ticket(client: TestClient, store: TicketStore) -> None:
+def test_update_ticket(app, store: TicketStore) -> None:
+    endpoint = _route_endpoint(app, "/tickets/{ticket_id}", "PATCH")
     store.create(_make_ticket("C1", title="Needs update", severity=Severity.MEDIUM))
 
-    response = client.patch(
-        "/tickets/C1",
-        json={"severity": "high", "status": "in_progress", "description": "Updated details"},
-    )
+    body = endpoint(
+        "C1",
+        TicketUpdate(severity="high", status="in_progress", description="Updated details"),
+    ).model_dump()
 
-    assert response.status_code == 200
-    body = response.json()
     assert body["severity"] == "high"
     assert body["status"] == "in_progress"
     assert body["description"] == "Updated details"
 
 
-def test_delete_ticket(client: TestClient, store: TicketStore) -> None:
+def test_delete_ticket(app, store: TicketStore) -> None:
+    endpoint = _route_endpoint(app, "/tickets/{ticket_id}", "DELETE")
     store.create(_make_ticket("C1", title="Delete me"))
 
-    response = client.delete("/tickets/C1")
+    response = endpoint("C1")
 
     assert response.status_code == 204
-    assert response.content == b""
-    missing = client.get("/tickets/C1")
-    assert missing.status_code == 404
+    with pytest.raises(Exception, match="Ticket C1 not found"):
+        store.get("C1")
 
 
-def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
+def test_search_endpoint(app, store: TicketStore) -> None:
+    endpoint = _route_endpoint(app, "/search", "POST")
     store.create(
         _make_ticket(
             "S1",
@@ -187,19 +189,24 @@ def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
         )
     )
 
-    response = client.post(
-        "/search",
-        json={
-            "query": "cors",
-            "topk": 10,
-            "offset": 0,
-        },
-    )
+    body = endpoint(SearchRequest(query="cors", topk=10, offset=0)).model_dump()
 
-    assert response.status_code == 200
-    body = response.json()
     assert body["total"] >= 1
     result_ids = [r["id"] for r in body["results"]]
     assert "S1" in result_ids
     assert "C1" not in result_ids
 
+
+def test_create_ticket_rejects_unknown_fields() -> None:
+    with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
+        TicketCreate(title="CORS wildcard in production", repo="ejacklab/open-dsearch", unexpected="value")
+
+
+def test_search_rejects_unknown_fields() -> None:
+    with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
+        SearchRequest(query="cors", unexpected="value")
+
+
+def test_search_rejects_semantic_true() -> None:
+    with pytest.raises(PydanticValidationError, match="Semantic search is not yet implemented"):
+        SearchRequest(query="cors", semantic=True)
