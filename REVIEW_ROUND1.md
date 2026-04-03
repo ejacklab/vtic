@@ -2,205 +2,213 @@
 
 **Project:** vtic  
 **Branch:** `feat/ticket-lifecycle-core`  
-**Date:** 2026-04-03  
-**Reviewer:** Codex (GPT-5.4) via Hermes  
-**Files reviewed:** All `.py` under `src/vtic/` and `tests/`, plus `README.md` and `DATA_MODELS.md`  
-**Test status:** 80/80 passing (0.62s)
+**Date:** 2026-04-04  
+**Reviewer:** Codex (gpt-5.4) + Apex (manual verification)  
+**Test Status:** 114/114 passing (0.61s)  
+**Files Reviewed:** 11 source files (`src/vtic/`), 7 test files (`tests/`)
 
 ---
 
 ## Summary
 
-| Severity | Count |
-|----------|-------|
-| Critical | 2 |
-| Warning  | 6 |
-| Info     | 2 |
+The codebase is well-structured with clean separation of concerns (models, storage, search, API, CLI). Path traversal protections are solid, BM25 search is correctly implemented, and concurrent ID generation is properly guarded with `fcntl.flock`. No critical bugs found. The main concerns are CLI error handling gaps, config validation bypass, test coverage gaps (API tests don't use TestClient), and spec drift between the data model spec and the implemented search API.
+
+**Severity counts:** 0 critical, 8 warning, 6 info
 
 ---
 
-## Critical Findings
+## Findings
 
-### C1 — Path traversal via repo field (security)
+### WARNING-1: CLI commands don't catch `ValueError` from `parse_repo()`
 
-The repo validator in both `Ticket` and `TicketCreate` accepts `.` and `..` path segments. The regex `^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$` matches `../escape/repo`. `parse_repo()` in `utils.py` splits on `/` without checking for traversal, and `ticket_path()` joins those segments directly into the filesystem path. `create()` writes to that path without verifying it stays under `base_dir`.
+**Files:** `src/vtic/cli/main.py:123-141`, `src/vtic/cli/main.py:267-292`, `src/vtic/utils.py:39-47`
 
-**Impact:** A repo value like `../escape/repo` resolves outside the ticket root, enabling arbitrary file write/read/delete on the host filesystem.
+**Description:** The `create()` command calls `parse_repo(repo)` which raises plain `ValueError` on malformed input (e.g., missing `/`). But the command only catches `VticError`, so users get a raw traceback instead of a clean CLI error message. Similarly, `update()` calls `Category(category)` at line 278 which also raises `ValueError` for invalid category strings.
 
-**References:**
-- `src/vtic/models.py:120` — Ticket repo regex allows `.` and `..`
-- `src/vtic/models.py:223` — TicketCreate repo regex allows `.` and `..`
-- `src/vtic/utils.py:37` — `parse_repo()` only splits on `/`
-- `src/vtic/utils.py:59` — `ticket_path()` joins segments directly
-- `src/vtic/storage.py:27` — `create()` writes without path containment check
+**Impact:** Poor UX — raw Python tracebacks shown to CLI users on invalid input.
 
-**Suggested fix:**
-1. Reject repo segments containing `.` or `..` in the validator regex: `^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]/[a-zA-Z0-9][a-zA-Z0-9_.-]*[a-zA-Z0-9]$` (or strip `.`/`..` explicitly).
-2. Add a runtime check in `ticket_path()` and all storage read/write/delete paths: verify `resolved_path.is_relative_to(base_dir.resolve())`.
+**Suggestion:** Add `except (ValueError, PydanticValidationError)` to the CLI command try/except blocks, and route them through `_exit_with_error()` with a friendly message.
 
 ---
 
-### C2 — Race condition in ID generation and non-atomic file creation
+### WARNING-2: Config env overrides can bypass cross-field validation
 
-`next_id()` derives the next ID by scanning existing files on disk. The API and CLI call `next_id()` separately from `create()`, and `create()` uses `path.exists()` followed by `write_text()` (non-atomic). Two concurrent writers can allocate the same ID, and the later write silently overwrites the earlier one.
+**Files:** `src/vtic/config.py:62-74`, `src/vtic/config.py:99-125`, `src/vtic/config.py:144-156`
 
-**Impact:** Data loss or corruption under concurrent usage. Ticket files can be silently overwritten.
+**Description:** `SearchConfig` has model validators for semantic config (`semantic_enabled + provider="none"` is invalid) and weight sum validation. But `from_env()` mutates fields after model construction (e.g., `config.search.semantic_enabled = ...`), and config models don't enable `validate_assignment`. Similarly, `load_config()` uses `setattr` to apply env overrides after the fact. This means invalid combinations like `VTIC_SEARCH_SEMANTIC_ENABLED=true` + `VTIC_SEARCH_EMBEDDING_PROVIDER=none` will silently pass.
 
-**References:**
-- `src/vtic/storage.py:85` — `next_id()` scans files to derive next ID
-- `src/vtic/api.py:94` — API calls `next_id()` then `create()` as separate steps
-- `src/vtic/cli/main.py:88` — CLI calls `next_id()` then `create()` as separate steps
-- `src/vtic/storage.py:28,33` — `create()` uses `exists()` + `write_text()` (non-atomic)
+**Impact:** Invalid config accepted without error, leading to confusing runtime failures.
 
-**Suggested fix:**
-1. Use a file lock (e.g., `fcntl.flock` or `filelock`) around the ID allocation + file write sequence.
-2. Use exclusive file creation: `open(path, "x")` or `os.open(path, os.O_CREAT | os.O_EXCL)` instead of `exists()` + `write_text()`.
-3. Ideally, merge `next_id()` and `create()` into a single atomic storage method.
+**Suggestion:** Either (a) merge TOML + env data into a dict first and instantiate `VticConfig` once, or (b) add `validate_assignment=True` to config model configs, or (c) re-validate after applying overrides.
 
 ---
 
-## Warning Findings
+### WARNING-3: Search implementation doesn't match DATA_MODELS.md spec
 
-### W1 — API silently ignores unknown fields in create/search requests
+**Files:** `src/vtic/models.py:366-393`, `src/vtic/api.py:161-172`, `DATA_MODELS.md:442-454`
 
-`VticBaseModel` sets `extra="ignore"`, and both `TicketCreate` and `SearchRequest` inherit it. Typoed fields in `POST /tickets` or `POST /search` are silently dropped instead of returning 422. This conflicts with the "strict validation" contract in `DATA_MODELS.md`.
+**Description:** The spec defines `SearchRequest` with `semantic`, `sort_by`, and `sort_order` fields. The implementation:
+- Actively **rejects** `semantic=True` via a validator (line 389-392)
+- **Omits** `sort_by` and `sort_order` fields entirely
+- Uses `topk` and `offset` for pagination (spec also has these)
 
-**References:**
-- `src/vtic/models.py:95` — `extra="ignore"` on base model
-- `src/vtic/models.py:215` — `TicketCreate` inherits `extra="ignore"`
-- `src/vtic/models.py:341` — `SearchRequest` inherits `extra="ignore"`
-- `DATA_MODELS.md:92` — spec says "strict validation"
+The spec describes a hybrid search system that doesn't exist yet.
 
-**Suggested fix:** Set `extra="forbid"` on `TicketCreate` and `SearchRequest` (similar to `TicketUpdate` which already uses `extra="forbid"`).
+**Impact:** Spec/code mismatch creates confusion for contributors and API consumers.
 
----
-
-### W2 — Search request fields accepted but ignored (`semantic`, `sort_by`, `sort_order`)
-
-`SearchRequest` exposes `semantic`, `sort_by`, and `sort_order`, but the API only forwards `query`, `filters`, `topk`, and `offset`. The search engine is BM25-only and always returns `semantic=False`, despite README promises of hybrid and semantic search.
-
-**References:**
-- `src/vtic/models.py:346,349` — `SearchRequest` defines `semantic`, `sort_by`, `sort_order`
-- `src/vtic/api.py:170` — API only forwards `query`, `filters`, `topk`, `offset`
-- `src/vtic/search.py:105,199` — always returns `semantic=False`
-- `README.md:20,66,110` — promises hybrid/semantic search
-
-**Suggested fix:** Either implement semantic search and sorting, or remove these fields from the contract (and return a clear error if `semantic=True` is requested).
+**Suggestion:** Update `DATA_MODELS.md` and `README.md` to reflect the current keyword-only search API. Add a `<!-- TODO -->` comment in the spec for planned features (semantic, sort_by, sort_order).
 
 ---
 
-### W3 — Repo wildcard filtering documented but not implemented
+### WARNING-4: API list endpoint uses untyped query params
 
-`SearchFilters.repo` docstring says "supports wildcards" and the README shows `--repo "ejacklab/*"`, but filtering uses exact string equality only.
+**Files:** `src/vtic/api.py:112-134`
 
-**References:**
-- `src/vtic/models.py:330` — `SearchFilters.repo` says "supports wildcards"
-- `src/vtic/storage.py:223` — filtering is exact equality only
-- `README.md:70` — example uses `--repo "ejacklab/*"`
+**Description:** `list_tickets()` takes `severity`, `status_value`, and `category` as raw `str | None` query params. Validation only happens when constructing `SearchFilters`. While Pydantic will catch invalid values at runtime (producing a 422), the OpenAPI schema won't advertise the valid enum values. This conflicts with the README's "OpenAPI 3.1 conventions" guidance.
 
-**Suggested fix:** Use `fnmatch.fnmatch()` for repo filtering, or document that only exact matching is supported.
+**Impact:** Weakened API documentation; consumers can't discover valid values from the schema.
 
----
-
-### W4 — Markdown serialization/parsing is brittle; can corrupt tickets
-
-Frontmatter is emitted by string concatenation, but fields like `title` and `owner` do not forbid embedded newlines. The ad-hoc line-by-line `_parse_frontmatter()` parser and `## Fix` body splitter can break on tickets with newlines in metadata or `## Fix` headings in the description.
-
-**References:**
-- `src/vtic/storage.py:192` — frontmatter emitted by string concatenation
-- `src/vtic/storage.py:139` — line-by-line parser
-- `src/vtic/storage.py:178` — body splits on `## Fix` marker
-- `src/vtic/models.py:113,123` — `title` and `owner` allow newlines
-
-**Suggested fix:**
-1. Use `yaml.dump()` / `yaml.safe_load()` for frontmatter serialization/parsing.
-2. Add explicit section delimiters (e.g., `<!-- DESCRIPTION -->` / `<!-- FIX -->`) instead of matching markdown headings.
-3. Alternatively, strip/replace newlines from title and owner at the model level.
+**Suggestion:** Use typed params like `severity: Severity | None = Query(None)` or accept `list[Severity]` directly.
 
 ---
 
-### W5 — Implementation does not match documented file format or CLI contract
+### WARNING-5: `next_id()` is public but not thread-safe
 
-Storage uses YAML frontmatter, but the README specifies heading-based markdown metadata. The README documents `vtic create --fix`, `vtic search --semantic`, and positional `update/delete` IDs, but the CLI lacks `--fix` and `--semantic`, and requires `--id` for update/delete.
+**Files:** `src/vtic/storage.py:194-207`
 
-**References:**
-- `src/vtic/storage.py:120,192` — YAML frontmatter in implementation
-- `README.md:155` — heading-based metadata in docs
-- `README.md:47,67,84` — documents `--fix`, `--semantic`, positional IDs
-- `src/vtic/cli/main.py:71,159,202,241` — CLI requires `--id`, no `--fix`/`--semantic`
+**Description:** The `create_ticket()` method safely generates IDs under `fcntl.flock`. However, `next_id()` is a public method that scans the filesystem without locking. Any caller doing `id = store.next_id(category)` then `store.create(ticket)` separately can race and produce duplicate IDs.
 
-**Suggested fix:** Either update the README to match the implementation, or update the implementation to match the README. Pick one as the source of truth.
+**Impact:** External callers using `next_id()` + `create()` risk ID collisions under concurrency.
+
+**Suggestion:** Either (a) make `next_id()` private (`_next_id`), or (b) add a docstring warning that `create_ticket()` is the only safe creation API, or (c) add locking to `next_id()`.
 
 ---
 
-### W6 — Config schema mismatch with README; config parse errors not normalized
+### WARNING-6: `create()` method is not atomic
 
-README documents `[api]` section, `enable_semantic`, and `"custom"` embedding provider. Code expects `[server]`, `semantic_enabled`, and `Literal["openai", "local", "none"]`. Also `from_env()` does raw `int()` casts and `from_toml()` doesn't wrap TOML errors, so bad config crashes with unstructured exceptions.
+**Files:** `src/vtic/storage.py:47-50`, `src/vtic/storage.py:339-347`
 
-**References:**
-- `README.md:187,190,195` — documents `[api]`, `enable_semantic`, `"custom"`
-- `src/vtic/config.py:28` — code uses `[server]`
-- `src/vtic/config.py:43,44` — code uses `semantic_enabled`, `Literal["openai", "local", "none"]`
-- `src/vtic/config.py:94,105` — raw `int()` casts in `from_env()`
-- `src/vtic/config.py:76` — `from_toml()` doesn't wrap errors
+**Description:** The public `create()` method writes directly with `open("x")` without file locking or temp-file atomic write. `create_ticket()` and `update()` both use `fcntl.flock` + temp files for atomicity, but `create()` doesn't. This creates inconsistent durability semantics across the public API.
 
-**Suggested fix:** Align config schema with README. Wrap `int()` casts and TOML parsing in try/except with `ConfigError`.
+**Impact:** Concurrent callers using `create()` can corrupt state or lose writes.
+
+**Suggestion:** Route `create()` through the same atomic write path, or document it as a low-level method for pre-validated tickets where the caller handles concurrency.
 
 ---
 
-## Info Findings
+### WARNING-7: API tests bypass HTTP layer
 
-### I1 — Test coverage misses highest-risk paths
+**Files:** `tests/test_api.py:61-65`
 
-No tests for:
-- Repo path traversal (`../escape/repo`)
-- Newline/frontmatter injection in title or owner
-- Description text containing `## Fix` heading
-- Wildcard repo filters (`ejacklab/*`)
-- Semantic/sort flags being silently ignored
-- Bad env/TOML config values
-- Malformed request bodies with unknown fields
-- Actual concurrent ID generation (the "concurrent" test is sequential)
+**Description:** API tests call route functions directly (via `_route_endpoint()` helper) instead of using FastAPI's `TestClient`. This means:
+- Malformed JSON bodies are never tested
+- Exception handlers (VticError, ValidationError) are never exercised
+- Query param coercion is not tested
+- HTTP status codes are not verified for error cases
+- OpenAPI schema generation is not validated
 
-**References:**
-- `tests/test_storage.py:140` — `test_concurrent_id_generation` is sequential
-- `tests/test_api.py:61` — no malformed body tests
+**Impact:** Significant test coverage gap for the API layer.
 
-**Suggested fix:** Add targeted tests for each of these scenarios, especially path traversal and concurrent ID allocation.
+**Suggestion:** Migrate to `from starlette.testclient import TestClient` and test through `client.post("/tickets", json=...)` to exercise the full HTTP stack.
 
 ---
 
-### I2 — Maintainability: duplicated constants and broken type-checking import
+### WARNING-8: CLI tests don't cover invalid inputs
 
-`CATEGORY_PREFIXES` is defined in both `models.py:73` and `constants.py:9`, inviting drift. `__init__.py` exposes a placeholder `TicketService` and has a type-checking import of a non-existent `.ticket` module.
+**Files:** `tests/test_cli.py`
 
-**References:**
-- `src/vtic/models.py:73` — first `CATEGORY_PREFIXES` definition
-- `src/vtic/constants.py:9` — second `CATEGORY_PREFIXES` definition
-- `src/vtic/__init__.py:13` — imports non-existent `.ticket` module
+**Description:** No CLI tests verify behavior when users provide invalid `--repo`, `--category`, `--file`, or `--tags` values. Since the CLI doesn't catch `ValueError` (see WARNING-1), these tests would reveal raw tracebacks.
 
-**Suggested fix:** Keep `CATEGORY_PREFIXES` only in `constants.py` and import it in `models.py`. Fix or remove the `TYPE_CHECKING` import in `__init__.py`.
+**Impact:** Broken CLI UX goes undetected.
 
----
-
-## Specific Checks
-
-| Check | Status | Notes |
-|-------|--------|-------|
-| Markdown file I/O safe (no path traversal)? | ❌ No | C1: repo field allows `.`/`..` traversal |
-| CLI inputs properly validated? | ⚠️ Partial | Enums OK, repo path safety not enforced |
-| API handles malformed requests? | ⚠️ Partial | Pydantic catches type errors, but unknown fields silently ignored |
-| Race conditions in ID generation? | ❌ Yes | C2: non-atomic next_id() + create() |
-| Empty search queries handled gracefully? | ✅ Yes | Returns empty results, covered by tests |
+**Suggestion:** Add tests using `typer.testing.CliRunner` that invoke CLI commands with invalid inputs and verify clean error messages.
 
 ---
 
-## Positive Observations
+## Info-Level Findings
 
-- **80/80 tests pass** with good coverage of happy paths
-- Clean Pydantic model design with proper validation
-- Good separation of concerns (models, storage, API, CLI, search)
-- `TicketUpdate` correctly uses `extra="forbid"`
-- Empty search query handling is correct and tested
-- Category prefix system is well-designed
-- File naming convention (category prefix + number) is clean and deterministic
+### INFO-1: `TicketUpdate.extra="forbid"` works correctly
+
+**File:** `src/vtic/models.py:261-279`
+
+In Pydantic v2, a subclass `model_config` overrides the parent's config. `TicketUpdate` sets `extra="forbid"` which correctly overrides `VticBaseModel`'s `extra="ignore"`. Confirmed by existing test at `tests/test_models.py:203`.
+
+### INFO-2: Path traversal protection is solid
+
+**Files:** `src/vtic/utils.py:65-73`, `src/vtic/models.py:177-187`
+
+`parse_repo()` rejects `.` and `..` segments. `ticket_path()` resolves the full path and checks `is_relative_to(base_dir)`. The `Ticket._normalize_repo()` validator also rejects traversal patterns. No traversal path found.
+
+### INFO-3: Empty search queries handled gracefully
+
+**Files:** `src/vtic/search.py:183-200`, `tests/test_search.py:210`
+
+When the query tokenizes to empty, search returns all filtered tickets sorted by ticket ID with `score=1.0`. Properly tested.
+
+### INFO-4: Search index is ephemeral
+
+**Files:** `src/vtic/search.py:110-115`, `src/vtic/cli/main.py:331-343`
+
+The `reindex` command rebuilds the in-memory BM25 index but doesn't persist it. Every search/list call re-parses all markdown files from disk. This is acceptable for small local usage but doesn't match the "build index" framing in docs.
+
+**Suggestion:** Either document as on-demand scanning, or add a persistent index file.
+
+### INFO-5: `_parse_body()` handles edge cases correctly
+
+**File:** `src/vtic/storage.py:276-306`
+
+Empty descriptions, fix-only bodies, description-only bodies, and bodies with literal `## Fix` headings are all handled correctly. The `<!-- DESCRIPTION -->` / `<!-- FIX -->` HTML comment delimiters prevent ambiguity with markdown headings.
+
+### INFO-6: BM25 regex is complete (display artifact)
+
+**File:** `src/vtic/search.py:13`
+
+The regex appears truncated in read tool output (`re.com...]+")`) but is complete and correct in the actual file. The `***` in `Category.AUTH` (line 39 of models.py) is also a display artifact — the actual value is `"auth"` as confirmed by runtime behavior and passing tests.
+
+---
+
+## Spec Compliance
+
+| Spec Feature | Implementation | Status |
+|---|---|---|
+| Ticket CRUD (create/get/update/delete) | Fully implemented | ✅ |
+| Soft delete + trash | Fully implemented | ✅ |
+| Restore from trash | Fully implemented | ✅ |
+| Markdown file format | Matches spec exactly | ✅ |
+| Category prefix mapping | Correct and complete | ✅ |
+| BM25 keyword search | Implemented | ✅ |
+| Semantic search | Rejected with validator | ⚠️ Not implemented |
+| Hybrid search (sort_by, sort_order) | Not in SearchRequest | ⚠️ Not implemented |
+| Search pagination (topk/offset) | Implemented | ✅ |
+| Path traversal protection | Solid | ✅ |
+| Config (TOML + env) | Implemented with caveats | ⚠️ Validation gap |
+| OpenAPI-first API design | Partial (untyped query params) | ⚠️ |
+
+---
+
+## Test Coverage Assessment
+
+| Area | Covered | Gap |
+|---|---|---|
+| Model validation | ✅ Thorough | — |
+| Storage CRUD | ✅ Thorough | — |
+| Concurrent creation | ✅ Tested | — |
+| Soft delete / trash | ✅ Tested | — |
+| BM25 search | ✅ Tested | — |
+| Empty queries | ✅ Tested | — |
+| API (HTTP layer) | ❌ Direct function calls | Use TestClient |
+| CLI error handling | ❌ Not tested | Use CliRunner |
+| Config validation edge cases | ⚠️ Partial | Test env override combos |
+| Malformed markdown bodies | ⚠️ Partial | Test content before delimiters |
+| Invalid query param types | ❌ Not tested | Test via TestClient |
+
+---
+
+## Recommended Fix Priority
+
+1. **WARNING-1 + WARNING-8:** CLI error handling (quick win, improves UX immediately)
+2. **WARNING-7:** Migrate API tests to TestClient (improves confidence)
+3. **WARNING-2:** Config validation bypass (prevents silent misconfiguration)
+4. **WARNING-3:** Update spec to match implementation (documentation debt)
+5. **WARNING-4:** Type API query params (OpenAPI quality)
+6. **WARNING-5 + WARNING-6:** Storage API consistency (low risk, document for now)
