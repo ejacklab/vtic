@@ -95,6 +95,11 @@ class TicketStore:
 
         return sorted(tickets, key=lambda ticket: (ticket.id[0], int(ticket.id[1:])))
 
+    def count(self) -> int:
+        if not self.base_dir.exists():
+            return 0
+        return sum(1 for path in self.base_dir.rglob("*.md") if path.is_file())
+
     def update(self, ticket_id: str, updates: TicketUpdate) -> Ticket:
         current, current_path = self._find_ticket_path(ticket_id)
         data = current.model_dump()
@@ -147,9 +152,18 @@ class TicketStore:
     def next_id(self, category: Category) -> str:
         prefix = CATEGORY_PREFIXES[category]
         highest = 0
-        for ticket in self.list():
-            if ticket.category is category and ticket.id.startswith(prefix):
-                highest = max(highest, int(ticket.id[1:]))
+        if not self.base_dir.exists():
+            return f"{prefix}1"
+
+        for path in self.base_dir.rglob("*.md"):
+            if not path.is_file():
+                continue
+            stem_prefix = path.stem.split("-", 1)[0].upper()
+            if not stem_prefix.startswith(prefix):
+                continue
+            suffix = stem_prefix[len(prefix) :]
+            if suffix.isdigit():
+                highest = max(highest, int(suffix))
         return f"{prefix}{highest + 1}"
 
     def _find_ticket_path(self, ticket_id: str) -> tuple[Ticket, Path]:

@@ -134,6 +134,16 @@ def test_list_with_filters(app, store: TicketStore) -> None:
     assert [ticket["id"] for ticket in body["data"]] == ["S1"]
 
 
+def test_health_uses_store_count(app, store: TicketStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    endpoint = _route_endpoint(app, "/health", "GET")
+    store.create(_make_ticket("C1", title="Cleanup helpers"))
+    monkeypatch.setattr(store, "list", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("list() called")))
+
+    response = endpoint()
+
+    assert response.ticket_count == 1
+
+
 def test_update_ticket(app, store: TicketStore) -> None:
     endpoint = _route_endpoint(app, "/tickets/{ticket_id}", "PATCH")
     store.create(_make_ticket("C1", title="Needs update", severity=Severity.MEDIUM))

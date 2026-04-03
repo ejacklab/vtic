@@ -193,6 +193,28 @@ def test_next_id_starts_at_1(tmp_path: Path) -> None:
     assert store.next_id(Category.CODE_QUALITY) == "C1"
 
 
+def test_count_counts_markdown_files_without_parsing(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket_dir = store.base_dir / "owner" / "repo" / "code-quality"
+    ticket_dir.mkdir(parents=True)
+    (ticket_dir / "C1-valid.md").write_text("---\nid: C1\n---\n", encoding="utf-8")
+    (ticket_dir / "C2-invalid.md").write_text("not frontmatter", encoding="utf-8")
+    (ticket_dir / "notes.txt").write_text("ignore", encoding="utf-8")
+
+    assert store.count() == 2
+
+
+def test_next_id_uses_filename_scan_without_parsing(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket_dir = store.base_dir / "owner" / "repo" / "code-quality"
+    ticket_dir.mkdir(parents=True)
+    (ticket_dir / "C2-valid.md").write_text("---\nid: C2\n---\n", encoding="utf-8")
+    (ticket_dir / "C10-invalid.md").write_text("not frontmatter", encoding="utf-8")
+    (ticket_dir / "S99-security.md").write_text("not frontmatter", encoding="utf-8")
+
+    assert store.next_id(Category.CODE_QUALITY) == "C11"
+
+
 def test_create_uses_expected_nested_path(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("S1", title="Nested path", repo="acme/platform", category=Category.SECURITY)

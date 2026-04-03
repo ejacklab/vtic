@@ -173,7 +173,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        ticket_count = len(store.list())
+        ticket_count = store.count()
         return HealthResponse(
             status="healthy",
             ticket_count=ticket_count,
