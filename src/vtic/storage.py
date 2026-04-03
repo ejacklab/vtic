@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import fcntl
 import fnmatch
+import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -101,13 +103,34 @@ class TicketStore:
         data["updated_at"] = utc_now()
         updated_ticket = Ticket(**data)
         new_path = ticket_path(self.base_dir, updated_ticket)
+        temp_path: Path | None = None
 
         try:
-            new_path.parent.mkdir(parents=True, exist_ok=True)
-            new_path.write_text(self._serialize_ticket(updated_ticket), encoding="utf-8")
-            if new_path != current_path and current_path.exists():
-                current_path.unlink()
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+            lock_path = self.base_dir / ".vtic.lock"
+            with lock_path.open("a+", encoding="utf-8") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=new_path.parent,
+                    delete=False,
+                ) as temp_file:
+                    temp_file.write(self._serialize_ticket(updated_ticket))
+                    temp_path = Path(temp_file.name)
+                os.replace(temp_path, new_path)
+                temp_path = None
+                if new_path != current_path and current_path.exists():
+                    current_path.unlink()
         except OSError as exc:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
             raise TicketWriteError(updated_ticket.id, str(exc)) from exc
 
         return updated_ticket

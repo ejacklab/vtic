@@ -305,6 +305,34 @@ def test_update_can_change_category_and_move_file(tmp_path: Path) -> None:
     assert new_path.exists()
 
 
+def test_update_is_atomic(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket("C1", title="Original title", category=Category.CODE_QUALITY)
+    old_path = ticket_path(store.base_dir, ticket)
+    store.create(ticket)
+
+    updated = store.update(
+        "C1",
+        TicketUpdate(
+            category=Category.SECURITY,
+            title="Updated title",
+            status=Status.FIXED,
+            description="Updated description",
+        ),
+    )
+    new_path = ticket_path(store.base_dir, updated)
+    files = list(store.base_dir.rglob("*.md"))
+
+    assert len(files) == 1
+    assert files == [new_path]
+    assert not old_path.exists()
+    assert new_path.exists()
+    content = new_path.read_text(encoding="utf-8")
+    assert "title: Updated title" in content
+    assert "status: fixed" in content
+    assert "Updated description" in content
+
+
 def test_delete_not_found_raises(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
 
