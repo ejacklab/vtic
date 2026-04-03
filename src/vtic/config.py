@@ -12,6 +12,17 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .constants import DEFAULT_CONFIG_FILENAME, DEFAULT_GLOBAL_CONFIG_PATH
 from .errors import ConfigError
 
+_ENV_OVERRIDES: dict[str, tuple[str, str]] = {
+    "VTIC_TICKETS_DIR": ("tickets", "dir"),
+    "VTIC_SERVER_HOST": ("server", "host"),
+    "VTIC_SERVER_PORT": ("server", "port"),
+    "VTIC_SEARCH_BM25_ENABLED": ("search", "bm25_enabled"),
+    "VTIC_SEARCH_SEMANTIC_ENABLED": ("search", "semantic_enabled"),
+    "VTIC_SEARCH_EMBEDDING_PROVIDER": ("search", "embedding_provider"),
+    "VTIC_SEARCH_EMBEDDING_MODEL": ("search", "embedding_model"),
+    "VTIC_SEARCH_EMBEDDING_DIMENSIONS": ("search", "embedding_dimensions"),
+}
+
 
 class TicketsConfig(BaseModel):
     """Ticket storage configuration."""
@@ -135,24 +146,11 @@ def load_config(explicit_path: Path | None = None) -> VticConfig:
 
     path = explicit_path.expanduser().resolve() if explicit_path is not None else resolve_config_path()
     config = VticConfig.from_toml(path) if path is not None else VticConfig()
-
     env_config = VticConfig.from_env()
 
-    if "VTIC_TICKETS_DIR" in os.environ:
-        config.tickets = env_config.tickets
-    if "VTIC_SERVER_HOST" in os.environ:
-        config.server.host = env_config.server.host
-    if "VTIC_SERVER_PORT" in os.environ:
-        config.server.port = env_config.server.port
-    if "VTIC_SEARCH_BM25_ENABLED" in os.environ:
-        config.search.bm25_enabled = env_config.search.bm25_enabled
-    if "VTIC_SEARCH_SEMANTIC_ENABLED" in os.environ:
-        config.search.semantic_enabled = env_config.search.semantic_enabled
-    if "VTIC_SEARCH_EMBEDDING_PROVIDER" in os.environ:
-        config.search.embedding_provider = env_config.search.embedding_provider
-    if "VTIC_SEARCH_EMBEDDING_MODEL" in os.environ:
-        config.search.embedding_model = env_config.search.embedding_model
-    if "VTIC_SEARCH_EMBEDDING_DIMENSIONS" in os.environ:
-        config.search.embedding_dimensions = env_config.search.embedding_dimensions
+    for env_var, (section, field) in _ENV_OVERRIDES.items():
+        if env_var not in os.environ:
+            continue
+        setattr(getattr(config, section), field, getattr(getattr(env_config, section), field))
 
     return config
