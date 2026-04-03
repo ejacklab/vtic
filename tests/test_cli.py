@@ -78,6 +78,8 @@ def test_create_command_all_flags(tmp_path: Path) -> None:
             "CORS Wildcard in Production",
             "--description",
             "All FastAPI services use allow_origins=['*'].",
+            "--fix",
+            "Restrict allowed origins to trusted domains.",
             "--file",
             "backend/api-gateway/main.py:27-32",
             "--tags",
@@ -95,6 +97,8 @@ def test_create_command_all_flags(tmp_path: Path) -> None:
         / "security"
         / "S1-cors-wildcard-in-production.md"
     ).exists()
+    ticket = _make_store(tmp_path).get("S1")
+    assert ticket.fix == "Restrict allowed origins to trusted domains."
 
 
 def test_create_missing_required_field_raises(tmp_path: Path) -> None:
@@ -156,6 +160,62 @@ def test_update_ticket(tmp_path: Path) -> None:
     assert "fixed" in result.output
     ticket = _make_store(tmp_path).get("C1")
     assert ticket.status.value == "fixed"
+
+
+def test_update_ticket_all_new_flags(tmp_path: Path) -> None:
+    runner.invoke(
+        app,
+        [
+            "create",
+            "--repo",
+            "ejacklab/open-dsearch",
+            "--title",
+            "Original title",
+            "--description",
+            "Original description",
+        ],
+        env=_env(tmp_path),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "update",
+            "--id",
+            "C1",
+            "--status",
+            "in_progress",
+            "--severity",
+            "high",
+            "--fix",
+            "Apply the shared abstraction.",
+            "--owner",
+            "smoke01",
+            "--category",
+            "security",
+            "--file",
+            "src/app.py:10-20",
+            "--tags",
+            "auth,security",
+            "--title",
+            "Updated title",
+            "--description",
+            "Updated description",
+        ],
+        env=_env(tmp_path),
+    )
+
+    assert result.exit_code == 0
+    ticket = _make_store(tmp_path).get("C1")
+    assert ticket.status.value == "in_progress"
+    assert ticket.severity.value == "high"
+    assert ticket.fix == "Apply the shared abstraction."
+    assert ticket.owner == "smoke01"
+    assert ticket.category.value == "security"
+    assert ticket.file == "src/app.py:10-20"
+    assert ticket.tags == ["auth", "security"]
+    assert ticket.title == "Updated title"
+    assert ticket.description == "Updated description"
 
 
 def test_delete_ticket(tmp_path: Path) -> None:

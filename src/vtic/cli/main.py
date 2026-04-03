@@ -74,6 +74,7 @@ def create(
     severity: Severity = typer.Option(Severity.MEDIUM, "--severity", help="Ticket severity"),
     title: str = typer.Option(..., "--title", help="Ticket title"),
     description: str | None = typer.Option(None, "--description", help="Ticket description"),
+    fix: str | None = typer.Option(None, "--fix", help="Fix description"),
     file: str | None = typer.Option(None, "--file", help="File reference"),
     tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
@@ -91,7 +92,7 @@ def create(
             severity=severity,
             status=Status.OPEN,
             description=description,
-            fix=None,
+            fix=fix,
             file=file,
             tags=tags.split(",") if tags else [],
             slug=slugify(title),
@@ -198,17 +199,39 @@ def update(
     id: str = typer.Option(..., "--id", help="Ticket ID"),
     status: Status | None = typer.Option(None, "--status", help="New status"),
     severity: Severity | None = typer.Option(None, "--severity", help="New severity"),
+    fix: str | None = typer.Option(None, "--fix", help="New fix description"),
+    owner: str | None = typer.Option(None, "--owner", help="New owner"),
+    category: str | None = typer.Option(None, "--category", help="New category"),
+    file: str | None = typer.Option(None, "--file", help="New file reference"),
+    tags: str | None = typer.Option(None, "--tags", help="New comma-separated tags"),
+    title: str | None = typer.Option(None, "--title", help="New title"),
     description: str | None = typer.Option(None, "--description", help="New description"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Update a ticket."""
 
     try:
-        updates = TicketUpdate(
-            status=status,
-            severity=severity,
-            description=description,
-        )
+        update_data: dict[str, object] = {}
+        if status is not None:
+            update_data["status"] = status
+        if severity is not None:
+            update_data["severity"] = severity
+        if fix is not None:
+            update_data["fix"] = fix
+        if owner is not None:
+            update_data["owner"] = owner
+        if category is not None:
+            update_data["category"] = Category(category)
+        if file is not None:
+            update_data["file"] = file
+        if tags is not None:
+            update_data["tags"] = tags.split(",")
+        if title is not None:
+            update_data["title"] = title
+        if description is not None:
+            update_data["description"] = description
+
+        updates = TicketUpdate(**update_data)
         ticket = _resolve_store(dir).update(id, updates)
         _print_ticket(ticket, "Updated Ticket")
     except VticError as exc:
