@@ -15,6 +15,7 @@ dependencies = [
     "rank-bm25>=0.2",
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

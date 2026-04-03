@@ -9,7 +9,7 @@ import pytest
 
 from vtic.errors import TicketAlreadyExistsError, TicketNotFoundError
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
-from vtic.storage import TicketStore
+from vtic.storage import TRASH_DIRNAME, TicketStore
 from vtic.utils import slugify, ticket_path
 
 
@@ -132,7 +132,7 @@ def test_delete_removes_file(tmp_path: Path) -> None:
     path = ticket_path(store.base_dir, ticket)
     store.create(ticket)
 
-    store.delete("C1")
+    store.delete("C1", force=True)
 
     assert not path.exists()
     with pytest.raises(TicketNotFoundError):
@@ -415,3 +415,118 @@ def test_list_filters_by_has_fix_and_owner(tmp_path: Path) -> None:
     results = store.list(SearchFilters(has_fix=True, owner="smoke01"))
 
     assert [ticket.id for ticket in results] == ["C1"]
+
+
+def test_soft_delete_moves_file_to_trash(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket("C1", title="Trash me", repo="acme/app")
+    active_path = ticket_path(store.base_dir, ticket)
+    store.create(ticket)
+
+    trash_path = store.move_to_trash("C1")
+
+    assert not active_path.exists()
+    assert trash_path == store.base_dir / TRASH_DIRNAME / "acme" / "app" / "code_quality" / "C1-trash-me.md"
+    assert trash_path.exists()
+
+
+def test_soft_delete_creates_trash_directory(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket("C1", title="Create trash dir")
+    store.create(ticket)
+
+    store.delete("C1")
+
+    assert (store.base_dir / TRASH_DIRNAME).is_dir()
+
+
+def test_force_delete_permanently_removes(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket("C1", title="Hard delete")
+    store.create(ticket)
+
+    store.delete("C1", force=True)
+
+    assert not any(store.base_dir.rglob("*.md"))
+    assert not (store.base_dir / TRASH_DIRNAME).exists()
+
+
+def test_restore_from_trash(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket("S1", title="Restore me", category=Category.SECURITY, repo="acme/app")
+    original_path = ticket_path(store.base_dir, ticket)
+    store.create(ticket)
+    store.delete("S1")
+
+    restored = store.restore_from_trash("S1")
+
+    assert restored == ticket
+    assert original_path.exists()
+    assert not any((store.base_dir / TRASH_DIRNAME).rglob("S1-restore-me.md"))
+
+
+def test_list_excludes_trash_directory(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    active = _make_ticket("C1", title="Active ticket")
+    trashed = _make_ticket("C2", title="Trashed ticket")
+    store.create(active)
+    store.create(trashed)
+    store.delete("C2")
+
+    results = store.list()
+
+    assert [ticket.id for ticket in results] == ["C1"]
+
+
+def test_find_ticket_excludes_trash_directory(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket("C1", title="Hidden in trash")
+    store.create(ticket)
+    store.delete("C1")
+
+    with pytest.raises(TicketNotFoundError):
+        store.get("C1")
+
+
+def test_soft_delete_preserves_file_content(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket(
+        "C1",
+        title="Preserve content",
+        description="Original description.",
+        fix="Original fix.",
+        tags=["alpha", "beta"],
+    )
+    store.create(ticket)
+    original_content = ticket_path(store.base_dir, ticket).read_text(encoding="utf-8")
+
+    trash_path = store.move_to_trash("C1")
+
+    assert trash_path.read_text(encoding="utf-8") == original_content
+
+
+def test_list_supports_sort_by_severity(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    store.create(_make_ticket("C1", title="Medium priority", severity=Severity.MEDIUM))
+    store.create(_make_ticket("C2", title="Critical priority", severity=Severity.CRITICAL))
+    store.create(_make_ticket("C3", title="Low priority", severity=Severity.LOW))
+
+    results = store.list(sort_by="severity")
+
+    assert [ticket.id for ticket in results] == ["C2", "C1", "C3"]
+
+
+def test_list_supports_descending_created_at_sort(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    older = _make_ticket("C1", title="Older")
+    newer = _make_ticket("C2", title="Newer")
+    older_timestamp = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+    newer_timestamp = datetime(2026, 3, 16, 11, 0, 0, tzinfo=UTC)
+    older = older.model_copy(update={"created_at": older_timestamp, "updated_at": older_timestamp})
+    newer = newer.model_copy(update={"created_at": newer_timestamp, "updated_at": newer_timestamp})
+    store.create(older)
+    store.create(newer)
+
+    results = store.list(sort_by="-created_at")
+
+    assert [ticket.id for ticket in results] == ["C2", "C1"]

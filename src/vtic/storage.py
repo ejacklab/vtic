@@ -8,9 +8,11 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 
+from .constants import VALID_STATUSES
 from .errors import (
     TicketAlreadyExistsError,
     TicketDeleteError,
@@ -24,6 +26,16 @@ from .utils import isoformat_z, normalize_tags, ticket_path, utc_now
 
 DESCRIPTION_DELIMITER = "<!-- DESCRIPTION -->"
 FIX_DELIMITER = "<!-- FIX -->"
+TRASH_DIRNAME = ".trash"
+SEVERITY_ORDER = {
+    Severity.CRITICAL: 0,
+    Severity.HIGH: 1,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 3,
+}
+STATUS_ORDER = {
+    Status(status): index for index, status in enumerate(VALID_STATUSES)
+}
 
 
 class TicketStore:
@@ -81,24 +93,22 @@ class TicketStore:
         _, path = self._find_ticket_path(ticket_id)
         return self._read_ticket(path, ticket_id=ticket_id)
 
-    def list(self, filters: SearchFilters | None = None) -> list[Ticket]:
+    def list(self, filters: SearchFilters | None = None, sort_by: str | None = None) -> list[Ticket]:
         tickets: list[Ticket] = []
         if not self.base_dir.exists():
             return tickets
 
-        for path in sorted(self.base_dir.rglob("*.md")):
-            if not path.is_file():
-                continue
+        for path in self._iter_ticket_paths():
             ticket = self._read_ticket(path)
             if self._matches_filters(ticket, filters):
                 tickets.append(ticket)
 
-        return sorted(tickets, key=lambda ticket: (ticket.id[0], int(ticket.id[1:])))
+        return self._sort_tickets(tickets, sort_by)
 
     def count(self) -> int:
         if not self.base_dir.exists():
             return 0
-        return sum(1 for path in self.base_dir.rglob("*.md") if path.is_file())
+        return sum(1 for _ in self._iter_ticket_paths())
 
     def update(self, ticket_id: str, updates: TicketUpdate) -> Ticket:
         current, current_path = self._find_ticket_path(ticket_id)
@@ -140,7 +150,39 @@ class TicketStore:
 
         return updated_ticket
 
-    def delete(self, ticket_id: str) -> None:
+    def move_to_trash(self, ticket_id: str) -> Path:
+        _, path = self._find_ticket_path(ticket_id)
+        trash_path = self._trash_path_for_ticket_path(path)
+        try:
+            trash_path.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(path, trash_path)
+            return trash_path
+        except FileNotFoundError as exc:
+            raise TicketNotFoundError(ticket_id) from exc
+        except OSError as exc:
+            raise TicketDeleteError(ticket_id, str(exc)) from exc
+
+    def restore_from_trash(self, ticket_id: str) -> Ticket:
+        ticket, trash_path = self._find_trashed_ticket_path(ticket_id)
+        restored_path = ticket_path(self.base_dir, ticket)
+        try:
+            if restored_path.exists():
+                raise TicketAlreadyExistsError(ticket.id)
+            restored_path.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(trash_path, restored_path)
+        except FileNotFoundError as exc:
+            raise TicketNotFoundError(ticket_id) from exc
+        except TicketAlreadyExistsError:
+            raise
+        except OSError as exc:
+            raise TicketDeleteError(ticket_id, str(exc)) from exc
+        return self._read_ticket(restored_path, ticket_id=ticket.id)
+
+    def delete(self, ticket_id: str, force: bool = False) -> None:
+        if not force:
+            self.move_to_trash(ticket_id)
+            return
+
         _, path = self._find_ticket_path(ticket_id)
         try:
             path.unlink()
@@ -155,9 +197,7 @@ class TicketStore:
         if not self.base_dir.exists():
             return f"{prefix}1"
 
-        for path in self.base_dir.rglob("*.md"):
-            if not path.is_file():
-                continue
+        for path in self._iter_ticket_paths(include_trash=True):
             stem_prefix = path.stem.split("-", 1)[0].upper()
             if not stem_prefix.startswith(prefix):
                 continue
@@ -168,9 +208,16 @@ class TicketStore:
 
     def _find_ticket_path(self, ticket_id: str) -> tuple[Ticket, Path]:
         normalized = ticket_id.upper()
-        for path in sorted(self.base_dir.rglob("*.md")):
-            if not path.is_file():
-                continue
+        for path in self._iter_ticket_paths():
+            stem_prefix = path.stem.split("-", 1)[0].upper()
+            if stem_prefix == normalized:
+                ticket = self._read_ticket(path, ticket_id=normalized)
+                return ticket, path
+        raise TicketNotFoundError(ticket_id)
+
+    def _find_trashed_ticket_path(self, ticket_id: str) -> tuple[Ticket, Path]:
+        normalized = ticket_id.upper()
+        for path in self._iter_ticket_paths(include_trash=True, trash_only=True):
             stem_prefix = path.stem.split("-", 1)[0].upper()
             if stem_prefix == normalized:
                 ticket = self._read_ticket(path, ticket_id=normalized)
@@ -326,3 +373,56 @@ class TicketStore:
         if filters.owner and ticket.owner != filters.owner:
             return False
         return True
+
+    def _iter_ticket_paths(self, *, include_trash: bool = False, trash_only: bool = False) -> list[Path]:
+        paths: list[Path] = []
+        if not self.base_dir.exists():
+            return paths
+
+        for path in sorted(self.base_dir.rglob("*.md")):
+            if not path.is_file():
+                continue
+            is_trash = self._is_trash_path(path)
+            if trash_only and not is_trash:
+                continue
+            if not include_trash and is_trash:
+                continue
+            paths.append(path)
+        return paths
+
+    def _trash_path_for_ticket_path(self, path: Path) -> Path:
+        relative_path = path.relative_to(self.base_dir)
+        return self.base_dir / TRASH_DIRNAME / relative_path
+
+    def _is_trash_path(self, path: Path) -> bool:
+        try:
+            relative_path = path.relative_to(self.base_dir)
+        except ValueError:
+            return False
+        return bool(relative_path.parts) and relative_path.parts[0] == TRASH_DIRNAME
+
+    def _sort_tickets(self, tickets: list[Ticket], sort_by: str | None) -> list[Ticket]:
+        if not sort_by:
+            return sorted(tickets, key=self._ticket_id_sort_key)
+
+        reverse = sort_by.startswith("-")
+        field = sort_by[1:] if reverse else sort_by
+        key_func = self._sort_key_for_field(field)
+        return sorted(tickets, key=key_func, reverse=reverse)
+
+    @staticmethod
+    def _ticket_id_sort_key(ticket: Ticket) -> tuple[str, int]:
+        return (ticket.id[0], int(ticket.id[1:]))
+
+    def _sort_key_for_field(self, field: str) -> Any:
+        if field == "severity":
+            return lambda ticket: (SEVERITY_ORDER[ticket.severity], self._ticket_id_sort_key(ticket))
+        if field == "status":
+            return lambda ticket: (STATUS_ORDER[ticket.status], self._ticket_id_sort_key(ticket))
+        if field == "created_at":
+            return lambda ticket: (ticket.created_at, self._ticket_id_sort_key(ticket))
+        if field == "updated_at":
+            return lambda ticket: (ticket.updated_at, self._ticket_id_sort_key(ticket))
+        if field == "title":
+            return lambda ticket: (ticket.title.lower(), self._ticket_id_sort_key(ticket))
+        raise ValueError(f"Unsupported sort field: {field}")

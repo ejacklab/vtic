@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from enum import StrEnum
 from pathlib import Path
 
 import typer
@@ -11,13 +13,27 @@ from rich.table import Table
 
 from vtic.config import load_config
 from vtic.errors import VticError
-from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
+from vtic.models import (
+    Category,
+    SearchFilters,
+    SearchResponse,
+    Severity,
+    Status,
+    Ticket,
+    TicketResponse,
+    TicketUpdate,
+)
 from vtic.search import TicketSearch
 from vtic.storage import TicketStore
 from vtic.utils import parse_repo, slugify
 
 app = typer.Typer(help="vtic CLI")
 console = Console()
+
+
+class OutputFormat(StrEnum):
+    TABLE = "table"
+    JSON = "json"
 
 
 def _resolve_store(tickets_dir: Path | None) -> TicketStore:
@@ -48,6 +64,27 @@ def _print_ticket(ticket: Ticket, title: str) -> None:
     console.print(Panel(body, title=title, expand=False))
 
 
+def _write_json(payload: str) -> None:
+    typer.echo(payload)
+
+
+def _ticket_response(ticket: Ticket) -> TicketResponse:
+    return TicketResponse.from_ticket(ticket)
+
+
+def _print_ticket_json(ticket: Ticket) -> None:
+    _write_json(_ticket_response(ticket).model_dump_json())
+
+
+def _print_ticket_list_json(tickets: list[Ticket]) -> None:
+    payload = [_ticket_response(ticket).model_dump(mode="json") for ticket in tickets]
+    _write_json(json.dumps(payload))
+
+
+def _print_search_json(response: SearchResponse) -> None:
+    _write_json(response.model_dump_json())
+
+
 def _exit_with_error(exc: VticError) -> None:
     console.print(f"[red]{exc.message}[/red]")
     raise typer.Exit(code=1) from exc
@@ -70,8 +107,10 @@ def init(
 @app.command()
 def create(
     repo: str = typer.Option(..., "--repo", help="Repository in owner/repo format"),
+    owner: str | None = typer.Option(None, "--owner", help="Ticket owner"),
     category: Category = typer.Option(Category.CODE_QUALITY, "--category", help="Ticket category"),
     severity: Severity = typer.Option(Severity.MEDIUM, "--severity", help="Ticket severity"),
+    status: Status = typer.Option(Status.OPEN, "--status", help="Initial ticket status"),
     title: str = typer.Option(..., "--title", help="Ticket title"),
     description: str | None = typer.Option(None, "--description", help="Ticket description"),
     fix: str | None = typer.Option(None, "--fix", help="Fix description"),
@@ -83,14 +122,14 @@ def create(
 
     try:
         store = _resolve_store(dir)
-        owner, _ = parse_repo(repo)
+        derived_owner, _ = parse_repo(repo)
         ticket = store.create_ticket(
             title=title,
             repo=repo,
-            owner=owner,
+            owner=owner or derived_owner,
             category=category,
             severity=severity,
-            status=Status.OPEN,
+            status=status,
             description=description,
             fix=fix,
             file=file,
@@ -105,13 +144,17 @@ def create(
 @app.command()
 def get(
     ticket_id: str = typer.Argument(..., help="Ticket ID"),
+    format: OutputFormat = typer.Option(OutputFormat.TABLE, "--format", help="Output format"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Get a ticket."""
 
     try:
         ticket = _resolve_store(dir).get(ticket_id)
-        _print_ticket(ticket, "Ticket")
+        if format is OutputFormat.JSON:
+            _print_ticket_json(ticket)
+        else:
+            _print_ticket(ticket, "Ticket")
     except VticError as exc:
         _exit_with_error(exc)
 
@@ -122,6 +165,8 @@ def list_tickets(
     category: Category | None = typer.Option(None, "--category", help="Filter by category"),
     severity: Severity | None = typer.Option(None, "--severity", help="Filter by severity"),
     status: Status | None = typer.Option(None, "--status", help="Filter by status"),
+    sort: str | None = typer.Option(None, "--sort", help="Sort by severity, status, created_at, updated_at, title"),
+    format: OutputFormat = typer.Option(OutputFormat.TABLE, "--format", help="Output format"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """List tickets."""
@@ -133,7 +178,11 @@ def list_tickets(
             severity=[severity] if severity else None,
             status=[status] if status else None,
         )
-        tickets = _resolve_store(dir).list(filters)
+        tickets = _resolve_store(dir).list(filters, sort_by=sort)
+
+        if format is OutputFormat.JSON:
+            _print_ticket_list_json(tickets)
+            return
 
         table = Table(title="Tickets")
         for column in ("ID", "Title", "Category", "Severity", "Status", "Repo"):
@@ -159,6 +208,7 @@ def search(
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
     category: Category | None = typer.Option(None, "--category", help="Filter by category"),
     status: Status | None = typer.Option(None, "--status", help="Filter by status"),
+    format: OutputFormat = typer.Option(OutputFormat.TABLE, "--format", help="Output format"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Search tickets by keyword."""
@@ -172,6 +222,10 @@ def search(
         )
         engine = TicketSearch(store)
         response = engine.search(query, filters=filters)
+
+        if format is OutputFormat.JSON:
+            _print_search_json(response)
+            return
 
         if not response.results:
             console.print("[yellow]No results found.[/yellow]")
@@ -259,6 +313,7 @@ def serve(
 def delete(
     id: str = typer.Option(..., "--id", help="Ticket ID"),
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation"),
+    force: bool = typer.Option(False, "--force", help="Permanently delete instead of moving to trash"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Delete a ticket."""
@@ -267,8 +322,23 @@ def delete(
         if not yes and not typer.confirm(f"Delete ticket {id}?"):
             console.print("[yellow]Deletion cancelled[/yellow]")
             raise typer.Exit(code=0)
-        _resolve_store(dir).delete(id)
+        _resolve_store(dir).delete(id, force=force)
         console.print(f"[green]Deleted ticket:[/green] {id.upper()}")
+    except VticError as exc:
+        _exit_with_error(exc)
+
+
+@app.command()
+def reindex(
+    dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
+) -> None:
+    """Rebuild the search index."""
+
+    try:
+        store = _resolve_store(dir)
+        engine = TicketSearch(store)
+        engine.build_index()
+        console.print(f"[green]Rebuilt BM25 index for:[/green] {store.base_dir}")
     except VticError as exc:
         _exit_with_error(exc)
 
