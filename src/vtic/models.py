@@ -214,7 +214,7 @@ class Ticket(VticBaseModel):
 
     @property
     def search_text(self) -> str:
-        parts = [self.title, self.description or "", self.fix or "", " ".join(self.tags)]
+        parts = [self.id, self.title, self.description or "", self.file or "", self.fix or "", " ".join(self.tags)]
         return " ".join(parts)
 
 

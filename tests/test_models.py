@@ -239,8 +239,8 @@ def test_ticket_properties(sample_ticket: Ticket, tmp_path: Path) -> None:
     assert sample_ticket.filename == "S1-cors-wildcard-in-production.md"
     assert sample_ticket.filepath == "ejacklab/open-dsearch/security/S1-cors-wildcard-in-production.md"
     assert sample_ticket.search_text == (
-        "CORS Wildcard in Production All FastAPI services use allow_origins=['*']. "
-        "Use ALLOWED_ORIGINS from env. cors security fastapi"
+        "S1 CORS Wildcard in Production All FastAPI services use allow_origins=['*']. "
+        "backend/api-gateway/main.py:27-32 Use ALLOWED_ORIGINS from env. cors security fastapi"
     )
     assert ticket_path(tmp_path, sample_ticket) == (
         tmp_path

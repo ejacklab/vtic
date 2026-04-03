@@ -172,13 +172,25 @@ class TicketSearch:
 
         max_score = max(raw_scores)
         ranked: list[tuple[Ticket, float, float]] = []
-        for ticket, raw_score in zip(tickets, raw_scores, strict=True):
-            if raw_score <= 0:
-                continue
-            normalized_score = raw_score / max_score if max_score > 0 else 0.0
-            ranked.append((ticket, normalized_score, float(raw_score)))
 
-        ranked.sort(key=lambda item: (-item[2], self._ticket_sort_key(item[0])))
+        if max_score > 0:
+            # Normal BM25 ranking — exclude non-matching documents
+            for ticket, raw_score in zip(tickets, raw_scores, strict=True):
+                if raw_score <= 0:
+                    continue
+                normalized_score = raw_score / max_score
+                ranked.append((ticket, normalized_score, float(raw_score)))
+        else:
+            # BM25 returns all non-positive scores with very small corpora
+            # (IDF penalty outweighs TF boost). Fall back to term-frequency matching.
+            query_terms_set = set(query_terms)
+            for ticket in tickets:
+                doc_terms = set(self._tokenize(ticket.search_text))
+                overlap = len(query_terms_set & doc_terms)
+                if overlap > 0:
+                    ranked.append((ticket, overlap / len(query_terms_set), 0.0))
+
+        ranked.sort(key=lambda item: (-item[1], self._ticket_sort_key(item[0])))
 
         page = ranked[offset : offset + topk]
         results = [
