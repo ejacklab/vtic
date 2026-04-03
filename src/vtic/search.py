@@ -6,13 +6,69 @@ import math
 import re
 import time
 
-from rank_bm25 import BM25Okapi
-
 from vtic.models import SearchFilters, SearchResponse, SearchResult, Ticket
 from vtic.storage import TicketStore
 
 
 _TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+
+
+class _BuiltinBM25:
+    """Minimal BM25Okapi-compatible scorer for tokenized documents."""
+
+    _K1 = 1.5
+    _B = 0.75
+
+    def __init__(self, corpus: list[list[str]]) -> None:
+        self._corpus_size = len(corpus)
+        self._doc_lengths = [len(document) for document in corpus]
+        self._avgdl = (
+            sum(self._doc_lengths) / self._corpus_size if self._corpus_size > 0 else 0.0
+        )
+        self._doc_term_freqs: list[dict[str, int]] = []
+        self._idf: dict[str, float] = {}
+
+        doc_freqs: dict[str, int] = {}
+        for document in corpus:
+            term_freqs: dict[str, int] = {}
+            for term in document:
+                term_freqs[term] = term_freqs.get(term, 0) + 1
+            self._doc_term_freqs.append(term_freqs)
+
+            for term in term_freqs:
+                doc_freqs[term] = doc_freqs.get(term, 0) + 1
+
+        for term, document_count in doc_freqs.items():
+            self._idf[term] = math.log(
+                (self._corpus_size - document_count + 0.5) / (document_count + 0.5) + 1
+            )
+
+    def get_scores(self, query: list[str]) -> list[float]:
+        """Return BM25 scores for each indexed document."""
+
+        if self._corpus_size == 0:
+            return []
+
+        scores: list[float] = []
+        for term_freqs, doc_length in zip(self._doc_term_freqs, self._doc_lengths, strict=True):
+            length_norm = 1 - self._B
+            if self._avgdl > 0:
+                length_norm += self._B * doc_length / self._avgdl
+
+            score = 0.0
+            for term in query:
+                frequency = term_freqs.get(term, 0)
+                if frequency <= 0:
+                    continue
+                idf = self._idf.get(term)
+                if idf is None:
+                    continue
+                numerator = frequency * (self._K1 + 1)
+                denominator = frequency + self._K1 * length_norm
+                score += idf * (numerator / denominator)
+            scores.append(score)
+
+        return scores
 
 
 class TicketSearch:
@@ -23,7 +79,7 @@ class TicketSearch:
         self._tickets: list[Ticket] = []
         self._tokenized_documents: list[list[str]] = []
         self._ticket_ids: tuple[str, ...] = ()
-        self._bm25: BM25Okapi | None = None
+        self._bm25: _BuiltinBM25 | None = None
 
     def _tokenize(self, text: str) -> list[str]:
         """Split text on non-alphanumeric characters and drop short tokens."""
@@ -49,7 +105,7 @@ class TicketSearch:
             self._bm25 = None
             return
 
-        self._bm25 = BM25Okapi(self._tokenized_documents)
+        self._bm25 = _BuiltinBM25(self._tokenized_documents)
 
     def _ensure_index(self, tickets: list[Ticket]) -> None:
         """Ensure the cached index matches the current ticket corpus."""
@@ -156,7 +212,7 @@ class TicketSearch:
                 took_ms=took_ms,
             )
 
-        raw_scores = self._bm25.get_scores(query_terms).tolist()
+        raw_scores = self._bm25.get_scores(query_terms)
         if not raw_scores:
             took_ms = math.ceil((time.perf_counter() - started_at) * 1000)
             return SearchResponse(
