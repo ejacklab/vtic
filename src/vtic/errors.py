@@ -66,28 +66,6 @@ class ConfigError(VticError):
         )
 
 
-class SearchIndexError(VticError):
-    """Raised when Zvec index operations fail."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(
-            error_code="SEARCH_INDEX_ERROR",
-            message=f"Search index error: {message}",
-            status_code=500,
-        )
-
-
-class EmbeddingError(VticError):
-    """Raised when embedding generation fails."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(
-            error_code="EMBEDDING_ERROR",
-            message=f"Embedding generation failed: {message}",
-            status_code=500,
-        )
-
-
 class TicketAlreadyExistsError(VticError):
     """Raised when attempting to create a ticket with existing ID."""
 
