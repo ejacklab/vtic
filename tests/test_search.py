@@ -8,6 +8,7 @@ import pytest
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket
 from vtic.search import TicketSearch
 from vtic.storage import TicketStore
+from vtic.utils import slugify
 
 
 def _make_ticket(
@@ -32,7 +33,7 @@ def _make_ticket(
         tags=tags or [],
         created_at=now,
         updated_at=now,
-        slug=title.lower().replace(" ", "-")[:100],
+        slug=slugify(title),
     )
 
 

@@ -9,6 +9,8 @@ from typing import Generic, Literal, Optional, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .utils import normalize_tags, slugify
+
 
 class Severity(StrEnum):
     """Ticket severity levels indicating impact and urgency."""
@@ -160,16 +162,7 @@ class Ticket(VticBaseModel):
     @field_validator("tags")
     @classmethod
     def normalize_tags(cls, v: list[str]) -> list[str]:
-        if len(v) > 50:
-            raise ValueError("Cannot have more than 50 tags")
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for tag in v:
-            clean = tag.lower().strip()
-            if clean and clean not in seen:
-                normalized.append(clean)
-                seen.add(clean)
-        return normalized
+        return normalize_tags(v)
 
     @model_validator(mode="after")
     def validate_timestamps(self) -> Self:
@@ -192,13 +185,6 @@ class Ticket(VticBaseModel):
         if any(part in {".", ".."} for part in parts):
             raise ValueError("Repo path segments cannot be '.' or '..'")
         return raw.lower()
-
-    @staticmethod
-    def _slugify(text: str) -> str:
-        slug = re.sub(r"[^a-z0-9]+", "-", text.lower())
-        slug = slug.strip("-")
-        slug = re.sub(r"-+", "-", slug)
-        return slug[:100]
 
     @property
     def is_terminal(self) -> bool:
@@ -266,6 +252,11 @@ class TicketCreate(VticBaseModel):
         normalized = Ticket._normalize_single_line(v)
         return normalized or None
 
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str]) -> list[str]:
+        return normalize_tags(v)
+
 
 class TicketUpdate(VticBaseModel):
     """Request body for updating an existing ticket."""
@@ -303,6 +294,13 @@ class TicketUpdate(VticBaseModel):
             return None
         normalized = Ticket._normalize_single_line(v)
         return normalized or None
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return normalize_tags(v)
 
 
 class TicketResponse(VticBaseModel):

@@ -5,8 +5,10 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .models import Ticket
+if TYPE_CHECKING:
+    from .models import Ticket
 
 
 def slugify(text: str) -> str:
@@ -48,6 +50,8 @@ def parse_repo(repo: str) -> tuple[str, str]:
 def normalize_tags(tags: list[str]) -> list[str]:
     """Normalize tags using the same rules as the Ticket model."""
 
+    if len(tags) > 50:
+        raise ValueError("Cannot have more than 50 tags")
     normalized: list[str] = []
     seen: set[str] = set()
     for tag in tags:

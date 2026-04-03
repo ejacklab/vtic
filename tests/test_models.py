@@ -23,7 +23,7 @@ from vtic.models import (
     TicketResponse,
     TicketUpdate,
 )
-from vtic.utils import ticket_path
+from vtic.utils import slugify, ticket_path
 
 
 def test_enum_values_and_string_comparison() -> None:
@@ -72,7 +72,7 @@ def test_ticket_defaults_and_validators(sample_timestamp: datetime) -> None:
         repo="EJackLab/Open-DSearch",
         created_at=sample_timestamp,
         updated_at=sample_timestamp,
-        slug=Ticket._slugify("Needs cleanup"),
+        slug=slugify("Needs cleanup"),
         tags=["  Auth ", "auth", "", "Refactor "],
     )
 
@@ -161,7 +161,7 @@ def test_ticket_create_validation_defaults_and_repo_normalization() -> None:
     assert payload.category is Category.CODE_QUALITY
     assert payload.severity is Severity.MEDIUM
     assert payload.status is Status.OPEN
-    assert payload.tags == ["UPPER", "duplicate", "duplicate"]
+    assert payload.tags == ["upper", "duplicate"]
 
 
 def test_ticket_create_validation_rejects_empty_title() -> None:
@@ -282,5 +282,5 @@ def test_terminal_status_property(sample_timestamp: datetime) -> None:
 
 
 def test_slugify_helper_is_stable() -> None:
-    assert Ticket._slugify("Hello, World!!!") == "hello-world"
-    assert Ticket._slugify("Already---Slugged") == "already-slugged"
+    assert slugify("Hello, World!!!") == "hello-world"
+    assert slugify("Already---Slugged") == "already-slugged"

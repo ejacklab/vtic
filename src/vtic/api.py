@@ -27,7 +27,7 @@ from vtic.models import (
 )
 from vtic.search import TicketSearch
 from vtic.storage import TicketStore
-from vtic.utils import normalize_tags, parse_repo, slugify, utc_now
+from vtic.utils import parse_repo, slugify, utc_now
 
 
 def _error_json(error: ErrorResponse) -> JSONResponse:
@@ -99,7 +99,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
             description=payload.description,
             fix=payload.fix,
             file=payload.file,
-            tags=normalize_tags(payload.tags),
+            tags=payload.tags,
             slug=slugify(payload.title),
         )
         return TicketResponse.from_ticket(ticket)

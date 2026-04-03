@@ -10,7 +10,7 @@ import pytest
 from vtic.errors import TicketAlreadyExistsError, TicketNotFoundError
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from vtic.storage import TicketStore
-from vtic.utils import ticket_path
+from vtic.utils import slugify, ticket_path
 
 
 FIXED_TIMESTAMP = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
@@ -44,7 +44,7 @@ def _make_ticket(
         tags=tags or [],
         created_at=FIXED_TIMESTAMP,
         updated_at=FIXED_TIMESTAMP,
-        slug=Ticket._slugify(title),
+        slug=slugify(title),
     )
 
 

@@ -14,7 +14,7 @@ from vtic.errors import VticError
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from vtic.search import TicketSearch
 from vtic.storage import TicketStore
-from vtic.utils import normalize_tags, parse_repo, slugify
+from vtic.utils import parse_repo, slugify
 
 app = typer.Typer(help="vtic CLI")
 console = Console()
@@ -93,7 +93,7 @@ def create(
             description=description,
             fix=None,
             file=file,
-            tags=normalize_tags(tags.split(",")) if tags else [],
+            tags=tags.split(",") if tags else [],
             slug=slugify(title),
         )
         _print_ticket(ticket, "Created Ticket")
