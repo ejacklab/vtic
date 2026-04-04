@@ -1,214 +1,145 @@
-# Code Review — Round 1
+# Code Review Round 1 — vtic
 
-**Project:** vtic  
-**Branch:** `feat/ticket-lifecycle-core`  
-**Date:** 2026-04-04  
-**Reviewer:** Codex (gpt-5.4) + Apex (manual verification)  
-**Test Status:** 114/114 passing (0.61s)  
-**Files Reviewed:** 11 source files (`src/vtic/`), 7 test files (`tests/`)
+**Reviewer:** Codex (gpt-5.4, read-only sandbox)
+**Branch:** `feat/ticket-lifecycle-core`
+**Date:** 2026-04-05
+**Test Status:** ✅ 133/133 passing
 
 ---
 
 ## Summary
 
-The codebase is well-structured with clean separation of concerns (models, storage, search, API, CLI). Path traversal protections are solid, BM25 search is correctly implemented, and concurrent ID generation is properly guarded with `fcntl.flock`. No critical bugs found. The main concerns are CLI error handling gaps, config validation bypass, test coverage gaps (API tests don't use TestClient), and spec drift between the data model spec and the implemented search API.
-
-**Severity counts:** 0 critical, 8 warning, 6 info
+Code quality is generally solid. Core storage, search, and API layers are well-structured with proper error handling, type hints, and Pydantic validation. Key concerns are around index cache staleness, health endpoint semantics, server default bindings, and a documentation/implementation gap on filters.
 
 ---
 
-## Findings
-
-### WARNING-1: CLI commands don't catch `ValueError` from `parse_repo()`
-
-**Files:** `src/vtic/cli/main.py:123-141`, `src/vtic/cli/main.py:267-292`, `src/vtic/utils.py:39-47`
-
-**Description:** The `create()` command calls `parse_repo(repo)` which raises plain `ValueError` on malformed input (e.g., missing `/`). But the command only catches `VticError`, so users get a raw traceback instead of a clean CLI error message. Similarly, `update()` calls `Category(category)` at line 278 which also raises `ValueError` for invalid category strings.
-
-**Impact:** Poor UX — raw Python tracebacks shown to CLI users on invalid input.
-
-**Suggestion:** Add `except (ValueError, PydanticValidationError)` to the CLI command try/except blocks, and route them through `_exit_with_error()` with a friendly message.
+## Findings by Severity
 
 ---
 
-### WARNING-2: Config env overrides can bypass cross-field validation
+### 🔴 WARNING — Stale Search Index After Content Updates
 
-**Files:** `src/vtic/config.py:62-74`, `src/vtic/config.py:99-125`, `src/vtic/config.py:144-156`
+**Files:** `src/vtic/search.py:110`, `search.py:114`, `search.py:180`
 
-**Description:** `SearchConfig` has model validators for semantic config (`semantic_enabled + provider="none"` is invalid) and weight sum validation. But `from_env()` mutates fields after model construction (e.g., `config.search.semantic_enabled = ...`), and config models don't enable `validate_assignment`. Similarly, `load_config()` uses `setattr` to apply env overrides after the fact. This means invalid combinations like `VTIC_SEARCH_SEMANTIC_ENABLED=true` + `VTIC_SEARCH_EMBEDDING_PROVIDER=none` will silently pass.
+The BM25 index cache is keyed only by the tuple of ticket IDs. If a ticket's title, description, or tags are edited (without the ID changing), the cached index still contains the old tokenized content. Subsequent searches return incorrect rankings.
 
-**Impact:** Invalid config accepted without error, leading to confusing runtime failures.
-
-**Suggestion:** Either (a) merge TOML + env data into a dict first and instantiate `VticConfig` once, or (b) add `validate_assignment=True` to config model configs, or (c) re-validate after applying overrides.
+**Recommendation:** Invalidate the cache on any `update()` call, or key the cache by file mtime/content hash, not only by ID set.
 
 ---
 
-### WARNING-3: Search implementation doesn't match DATA_MODELS.md spec
+### 🔴 WARNING — `reindex` CLI Command Is a No-Op
 
-**Files:** `src/vtic/models.py:366-393`, `src/vtic/api.py:161-172`, `DATA_MODELS.md:442-454`
+**Files:** `src/vtic/cli/main.py:346`, `cli/main.py:354`, `src/vtic/search.py:96`
 
-**Description:** The spec defines `SearchRequest` with `semantic`, `sort_by`, and `sort_order` fields. The implementation:
-- Actively **rejects** `semantic=True` via a validator (line 389-392)
-- **Omits** `sort_by` and `sort_order` fields entirely
-- Uses `topk` and `offset` for pagination (spec also has these)
+`vtic reindex` builds a fresh `TicketSearch` instance, populates its in-memory index, and then discards it. Every subsequent CLI or API invocation creates a new `TicketSearch` instance, which re-indexes from disk anyway. The command has no lasting effect.
 
-The spec describes a hybrid search system that doesn't exist yet.
-
-**Impact:** Spec/code mismatch creates confusion for contributors and API consumers.
-
-**Suggestion:** Update `DATA_MODELS.md` and `README.md` to reflect the current keyword-only search API. Add a `<!-- TODO -->` comment in the spec for planned features (semantic, sort_by, sort_order).
+**Recommendation:** Either remove the command, or persist the index to disk (e.g., via `rank_bm25` serialization) so `TicketSearch` can load a pre-built index on startup.
 
 ---
 
-### WARNING-4: API list endpoint uses untyped query params
+### 🔴 WARNING — Health Endpoint Always Reports "ready"
 
-**Files:** `src/vtic/api.py:112-134`
+**Files:** `src/vtic/api.py:177`, `api.py:183`, `src/vtic/storage.py:105`, `storage.py:248`, `DATA_MODELS.md:489`
 
-**Description:** `list_tickets()` takes `severity`, `status_value`, and `category` as raw `str | None` query params. Validation only happens when constructing `SearchFilters`. While Pydantic will catch invalid values at runtime (producing a 422), the OpenAPI schema won't advertise the valid enum values. This conflicts with the README's "OpenAPI 3.1 conventions" guidance.
+`GET /health` always returns `status: "ok"` and `search_ready: true` regardless of whether the ticket store is readable or whether a malformed markdown file would crash `list()`. The README/docs promise that malformed tickets are handled gracefully, but the health endpoint does not reflect actual system health.
 
-**Impact:** Weakened API documentation; consumers can't discover valid values from the schema.
-
-**Suggestion:** Use typed params like `severity: Severity | None = Query(None)` or accept `list[Severity]` directly.
+**Recommendation:** Probe actual storage readability (attempt a `list()` with `limit=1`), collect parse errors, and surface them in the health response. Return `status: "degraded"` or include a `corrupted_tickets` list when issues are found.
 
 ---
 
-### WARNING-5: `next_id()` is public but not thread-safe
+### 🟡 WARNING — `serve` Ignores Config for Host/Port Defaults
 
-**Files:** `src/vtic/storage.py:194-207`
+**Files:** `src/vtic/cli/main.py:307`, `cli/main.py:318`, `src/vtic/config.py:52`, `README.md:192`
 
-**Description:** The `create_ticket()` method safely generates IDs under `fcntl.flock`. However, `next_id()` is a public method that scans the filesystem without locking. Any caller doing `id = store.next_id(category)` then `store.create(ticket)` separately can race and produce duplicate IDs.
+`vtic serve` hardcodes `host="0.0.0.0"` and `port=8900` in the Typer decorator defaults, completely ignoring `VticConfig.server.host` and `VticConfig.server.port`. This overrides the README's stated default of `127.0.0.1` and exposes the server on all interfaces unless explicitly overridden with CLI flags.
 
-**Impact:** External callers using `next_id()` + `create()` risk ID collisions under concurrency.
-
-**Suggestion:** Either (a) make `next_id()` private (`_next_id`), or (b) add a docstring warning that `create_ticket()` is the only safe creation API, or (c) add locking to `next_id()`.
+**Recommendation:** Default `serve`'s `--host`/`--port` to `None`, then fall back to `config.server.host`/`config.server.port` inside the handler. Keep `127.0.0.1` as the safe default per the docs.
 
 ---
 
-### WARNING-6: `create()` method is not atomic
+### 🟡 WARNING — Filter Surface Incomplete vs. Documentation
 
-**Files:** `src/vtic/storage.py:47-50`, `src/vtic/storage.py:339-347`
+**Files:** `src/vtic/api.py:115`, `src/vtic/cli/main.py:171`, `src/vtic/models.py:350`
 
-**Description:** The public `create()` method writes directly with `open("x")` without file locking or temp-file atomic write. `create_ticket()` and `update()` both use `fcntl.flock` + temp files for atomicity, but `create()` doesn't. This creates inconsistent durability semantics across the public API.
+The README advertises filtering by `owner`, `tags`, and date ranges (`created_after`, `created_before`, etc.). The `SearchFilters` model in `models.py` supports all of these, but:
+- `GET /tickets` (api.py) only passes `repo`, `category`, `severity`, `status` to `TicketStore.list()`.
+- CLI `list` command only exposes `--repo`, `--category`, `--severity`, `--status`.
 
-**Impact:** Concurrent callers using `create()` can corrupt state or lose writes.
-
-**Suggestion:** Route `create()` through the same atomic write path, or document it as a low-level method for pre-validated tickets where the caller handles concurrency.
-
----
-
-### WARNING-7: API tests bypass HTTP layer
-
-**Files:** `tests/test_api.py:61-65`
-
-**Description:** API tests call route functions directly (via `_route_endpoint()` helper) instead of using FastAPI's `TestClient`. This means:
-- Malformed JSON bodies are never tested
-- Exception handlers (VticError, ValidationError) are never exercised
-- Query param coercion is not tested
-- HTTP status codes are not verified for error cases
-- OpenAPI schema generation is not validated
-
-**Impact:** Significant test coverage gap for the API layer.
-
-**Suggestion:** Migrate to `from starlette.testclient import TestClient` and test through `client.post("/tickets", json=...)` to exercise the full HTTP stack.
+**Recommendation:** Wire up the remaining filters in the API and CLI, or remove them from the docs to avoid user confusion.
 
 ---
 
-### WARNING-8: CLI tests don't cover invalid inputs
+### 🟡 WARNING — One Corrupt Markdown File Crashes All of `list()`
 
-**Files:** `tests/test_cli.py`
+**Files:** `src/vtic/storage.py:110`, `storage.py:111`, `storage.py:236`
 
-**Description:** No CLI tests verify behavior when users provide invalid `--repo`, `--category`, `--file`, or `--tags` values. Since the CLI doesn't catch `ValueError` (see WARNING-1), these tests would reveal raw tracebacks.
+If any single markdown file in the ticket store is malformed (invalid YAML frontmatter, missing required fields), `TicketStore.list()` raises an exception and returns nothing. This means one bad ticket can take down search and list operations for the entire store.
 
-**Impact:** Broken CLI UX goes undetected.
-
-**Suggestion:** Add tests using `typer.testing.CliRunner` that invoke CLI commands with invalid inputs and verify clean error messages.
+**Recommendation:** Wrap per-file parsing in a try/except, collect failures with `ErrorDetail` (repo, filename, parse error), and return a `(partial_results, errors)` tuple or `PaginatedResponse` with a `warnings` field. Users can then fix corrupted files via a diagnostics command.
 
 ---
 
-## Info-Level Findings
+## ℹ️ INFO — Code Quality / Style Issues
 
-### INFO-1: `TicketUpdate.extra="forbid"` works correctly
+| File | Line | Issue |
+|------|------|-------|
+| `src/vtic/models.py` | 12 | Unused import: `slugify` |
+| `src/vtic/api.py` | 26 | Unused import: `Ticket` |
+| `src/vtic/cli/main.py` | 117–119, 121, 155, 173–177, 217, 219, 221, 244, 272, 328 | Long lines (>88 chars) |
+| `src/vtic/config.py` | 39, 103, 122, 154, 162 | Long lines (>88 chars) |
+| `src/vtic/models.py` | 78, 122, 138, 203, 225, 272, 353–356, 438, 451, 462, 493–494 | Long lines (>88 chars) |
+| `src/vtic/search.py` | 53, 89, 102, 127 | Long lines (>88 chars) |
+| `src/vtic/storage.py` | 23, 105, 362, 386, 428, 430, 436 | Long lines (>88 chars) |
+| `src/vtic/utils.py` | 70 | Long line (>88 chars) |
+| `src/vtic/errors.py` | 49 | Long line (>88 chars) |
 
-**File:** `src/vtic/models.py:261-279`
-
-In Pydantic v2, a subclass `model_config` overrides the parent's config. `TicketUpdate` sets `extra="forbid"` which correctly overrides `VticBaseModel`'s `extra="ignore"`. Confirmed by existing test at `tests/test_models.py:203`.
-
-### INFO-2: Path traversal protection is solid
-
-**Files:** `src/vtic/utils.py:65-73`, `src/vtic/models.py:177-187`
-
-`parse_repo()` rejects `.` and `..` segments. `ticket_path()` resolves the full path and checks `is_relative_to(base_dir)`. The `Ticket._normalize_repo()` validator also rejects traversal patterns. No traversal path found.
-
-### INFO-3: Empty search queries handled gracefully
-
-**Files:** `src/vtic/search.py:183-200`, `tests/test_search.py:210`
-
-When the query tokenizes to empty, search returns all filtered tickets sorted by ticket ID with `score=1.0`. Properly tested.
-
-### INFO-4: Search index is ephemeral
-
-**Files:** `src/vtic/search.py:110-115`, `src/vtic/cli/main.py:331-343`
-
-The `reindex` command rebuilds the in-memory BM25 index but doesn't persist it. Every search/list call re-parses all markdown files from disk. This is acceptable for small local usage but doesn't match the "build index" framing in docs.
-
-**Suggestion:** Either document as on-demand scanning, or add a persistent index file.
-
-### INFO-5: `_parse_body()` handles edge cases correctly
-
-**File:** `src/vtic/storage.py:276-306`
-
-Empty descriptions, fix-only bodies, description-only bodies, and bodies with literal `## Fix` headings are all handled correctly. The `<!-- DESCRIPTION -->` / `<!-- FIX -->` HTML comment delimiters prevent ambiguity with markdown headings.
-
-### INFO-6: BM25 regex is complete (display artifact)
-
-**File:** `src/vtic/search.py:13`
-
-The regex appears truncated in read tool output (`re.com...]+")`) but is complete and correct in the actual file. The `***` in `Category.AUTH` (line 39 of models.py) is also a display artifact — the actual value is `"auth"` as confirmed by runtime behavior and passing tests.
+**Recommendation:** Run `ruff check --fix` and `ruff format` (or `black`). Remove dead imports.
 
 ---
 
-## Spec Compliance
+## Specific Security & Correctness Checks
 
-| Spec Feature | Implementation | Status |
-|---|---|---|
-| Ticket CRUD (create/get/update/delete) | Fully implemented | ✅ |
-| Soft delete + trash | Fully implemented | ✅ |
-| Restore from trash | Fully implemented | ✅ |
-| Markdown file format | Matches spec exactly | ✅ |
-| Category prefix mapping | Correct and complete | ✅ |
-| BM25 keyword search | Implemented | ✅ |
-| Semantic search | Rejected with validator | ⚠️ Not implemented |
-| Hybrid search (sort_by, sort_order) | Not in SearchRequest | ⚠️ Not implemented |
-| Search pagination (topk/offset) | Implemented | ✅ |
-| Path traversal protection | Solid | ✅ |
-| Config (TOML + env) | Implemented with caveats | ⚠️ Validation gap |
-| OpenAPI-first API design | Partial (untyped query params) | ⚠️ |
+### ✅ Path Traversal — Safe
+Repo segments are validated in `utils.py:39`, and final resolved paths are checked against the base directory in `utils.py:65`. No `../` escape is possible through the public API.
 
----
+### ✅ CLI Input Validation — Mostly Sound
+Create/update endpoints use Pydantic models with proper enum coercion. Missing: `serve` host/port not respecting config defaults (see WARNING above); repo filter values not normalized in `list`/`search` CLI commands.
 
-## Test Coverage Assessment
+### ✅ API Malformed Requests — Handled
+FastAPI exception handlers in `api.py:74` and `api.py:80` normalize validation failures. `SearchRequest` has `extra="forbid"` and rejects `semantic=true` (planned but not implemented).
 
-| Area | Covered | Gap |
-|---|---|---|
-| Model validation | ✅ Thorough | — |
-| Storage CRUD | ✅ Thorough | — |
-| Concurrent creation | ✅ Tested | — |
-| Soft delete / trash | ✅ Tested | — |
-| BM25 search | ✅ Tested | — |
-| Empty queries | ✅ Tested | — |
-| API (HTTP layer) | ❌ Direct function calls | Use TestClient |
-| CLI error handling | ❌ Not tested | Use CliRunner |
-| Config validation edge cases | ⚠️ Partial | Test env override combos |
-| Malformed markdown bodies | ⚠️ Partial | Test content before delimiters |
-| Invalid query param types | ❌ Not tested | Test via TestClient |
+### ✅ ID Generation Race Conditions — Mitigated
+`create_ticket()` in `storage.py:77` uses `fcntl.flock` for safe ID allocation on local POSIX filesystems. Low-level `create()` and `_next_id()` are not thread-safe APIs, but this is documented.
+
+### ✅ Empty Search Queries — Handled Gracefully
+`search.py:183` returns a sorted full listing with score `1.0` when the query is empty.
 
 ---
 
-## Recommended Fix Priority
+## Test Coverage Gaps
 
-1. **WARNING-1 + WARNING-8:** CLI error handling (quick win, improves UX immediately)
-2. **WARNING-7:** Migrate API tests to TestClient (improves confidence)
-3. **WARNING-2:** Config validation bypass (prevents silent misconfiguration)
-4. **WARNING-3:** Update spec to match implementation (documentation debt)
-5. **WARNING-4:** Type API query params (OpenAPI quality)
-6. **WARNING-5 + WARNING-6:** Storage API consistency (low risk, document for now)
+| Gap | Impact |
+|-----|--------|
+| No test for stale index after ticket content update (same ID) | Index staleness could go undetected |
+| No test for `serve` honoring `VticConfig.server` / rejecting out-of-range ports | Config binding issues may go undetected |
+| No test for malformed on-disk markdown and degradation behavior | Corrupt file handling is untested |
+| No test for `owner`/`tags`/date filters via `GET /tickets` or CLI `list` | Filter wiring gaps may go undetected |
+| No test for concurrent `create_ticket()` collisions (beyond ID allocation) | Full concurrency surface untested |
+| No test for `search` with BM25 all-zero scores and semantic fallback | Edge case in ranking untested |
+
+---
+
+## What's Working Well
+
+- **Pydantic v2 strict validation** throughout — proper `min_length`, `max_length`, `pattern`, and `field_validator` usage.
+- **Error hierarchy** is well-designed: typed exceptions with `error_code`, `message`, `status_code`, and `ErrorDetail` list.
+- **Path safety** is solid — no `Path.home()` misuse, proper `resolve()` + `relative_to()` checks.
+- **Markdown storage** is clean and git-friendly; `TicketStore` is well-structured.
+- **BM25 search** implementation is reasonable with proper score normalization and fallback.
+- **Concurrency safety** for ID generation via `fcntl.flock` is a good POSIX solution.
+- **Test suite** is comprehensive at 133 tests with good coverage of storage, models, search, API, and CLI.
+- **`__init__.py` lazy imports** keep package initialization fast.
+
+---
+
+*End of Round 1 Review*
