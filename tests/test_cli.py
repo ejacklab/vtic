@@ -131,6 +131,18 @@ def test_create_missing_required_field_raises(tmp_path: Path) -> None:
     assert result.exit_code != 0
 
 
+def test_create_invalid_repo_returns_clean_error(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["create", "--repo", "nocolon", "--title", "Invalid repo"],
+        env=_env(tmp_path),
+    )
+
+    assert result.exit_code == 1
+    assert "Invalid repo format: nocolon. Expected: 'owner/repo'" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_get_ticket(tmp_path: Path) -> None:
     runner.invoke(
         app,
@@ -274,6 +286,57 @@ def test_update_ticket_all_new_flags(tmp_path: Path) -> None:
     assert ticket.tags == ["auth", "security"]
     assert ticket.title == "Updated title"
     assert ticket.description == "Updated description"
+
+
+def test_update_invalid_category_returns_clean_error(tmp_path: Path) -> None:
+    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Needs category"], env=_env(tmp_path))
+
+    result = runner.invoke(app, ["update", "--id", "C1", "--category", "invalid"], env=_env(tmp_path))
+
+    assert result.exit_code == 1
+    assert "'invalid' is not a valid Category" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_create_invalid_file_returns_clean_error(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "--repo",
+            "ejacklab/open-dsearch",
+            "--title",
+            "Bad file reference",
+            "--file",
+            ":12",
+        ],
+        env=_env(tmp_path),
+    )
+
+    assert result.exit_code == 1
+    assert "file" in result.output.lower()
+    assert "Traceback" not in result.output
+
+
+def test_create_invalid_tags_returns_clean_error(tmp_path: Path) -> None:
+    tags = ",".join(f"tag{i}" for i in range(51))
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "--repo",
+            "ejacklab/open-dsearch",
+            "--title",
+            "Too many tags",
+            "--tags",
+            tags,
+        ],
+        env=_env(tmp_path),
+    )
+
+    assert result.exit_code == 1
+    assert "Cannot have more than 50 tags" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_delete_ticket(tmp_path: Path) -> None:

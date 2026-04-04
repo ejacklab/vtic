@@ -110,6 +110,31 @@ def test_config_from_env_invalid_int_raises_config_error(monkeypatch) -> None:
         VticConfig.from_env()
 
 
+def test_config_from_env_invalid_semantic_provider_combo_raises_config_error(monkeypatch) -> None:
+    monkeypatch.setenv("VTIC_SEARCH_SEMANTIC_ENABLED", "true")
+    monkeypatch.setenv("VTIC_SEARCH_EMBEDDING_PROVIDER", "none")
+
+    with pytest.raises(ConfigError, match="Cannot enable semantic search with provider='none'"):
+        VticConfig.from_env()
+
+
+def test_load_config_invalid_env_override_combo_raises_config_error(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "vtic.toml"
+    config_path.write_text(
+        """
+[search]
+semantic_enabled = false
+embedding_provider = "local"
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VTIC_SEARCH_SEMANTIC_ENABLED", "true")
+    monkeypatch.setenv("VTIC_SEARCH_EMBEDDING_PROVIDER", "none")
+
+    with pytest.raises(ConfigError, match="Cannot enable semantic search with provider='none'"):
+        load_config(config_path)
+
+
 def test_config_from_toml_invalid_value_raises_config_error(tmp_path: Path) -> None:
     config_path = tmp_path / "vtic.toml"
     config_path.write_text(

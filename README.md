@@ -99,10 +99,12 @@ vtic serve --host 0.0.0.0 --port 8900
 | `GET` | `/tickets/:id` | Get a ticket |
 | `PATCH` | `/tickets/:id` | Update a ticket |
 | `DELETE` | `/tickets/:id` | Delete a ticket |
-| `POST` | `/search` | Keyword search |
+| `POST` | `/search` | Keyword search with filters and pagination |
 | `GET` | `/tickets` | List with filters |
 
 ### Example
+
+`/search` currently supports keyword search only. `semantic`, `sort_by`, and `sort_order` are planned but not implemented yet.
 
 ```bash
 curl -X POST http://localhost:8900/search \

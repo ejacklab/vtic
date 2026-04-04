@@ -13,6 +13,7 @@ from vtic import __version__
 from vtic.config import load_config
 from vtic.errors import VticError
 from vtic.models import (
+    Category,
     ErrorDetail,
     ErrorResponse,
     HealthResponse,
@@ -20,6 +21,8 @@ from vtic.models import (
     SearchFilters,
     SearchRequest,
     SearchResponse,
+    Severity,
+    Status,
     Ticket,
     TicketCreate,
     TicketResponse,
@@ -86,7 +89,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         status_code=status.HTTP_201_CREATED,
         responses={422: {"model": ErrorResponse}},
     )
-    def create_ticket(payload: TicketCreate) -> TicketResponse:
+    async def create_ticket(payload: TicketCreate) -> TicketResponse:
         repo_owner, repo_name = parse_repo(payload.repo)
         normalized_repo = f"{repo_owner.lower()}/{repo_name.lower()}"
         ticket = store.create_ticket(
@@ -109,10 +112,10 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         response_model=PaginatedResponse[TicketResponse],
         responses={422: {"model": ErrorResponse}},
     )
-    def list_tickets(
-        severity: str | None = Query(None),
-        status_value: str | None = Query(None, alias="status"),
-        category: str | None = Query(None),
+    async def list_tickets(
+        severity: Severity | None = Query(None),
+        status_value: Status | None = Query(None, alias="status"),
+        category: Category | None = Query(None),
         repo: str | None = Query(None),
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
@@ -138,7 +141,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         response_model=TicketResponse,
         responses={404: {"model": ErrorResponse}},
     )
-    def get_ticket(ticket_id: str) -> TicketResponse:
+    async def get_ticket(ticket_id: str) -> TicketResponse:
         return TicketResponse.from_ticket(store.get(ticket_id))
 
     @app.patch(
@@ -146,7 +149,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         response_model=TicketResponse,
         responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
     )
-    def update_ticket(ticket_id: str, payload: TicketUpdate) -> TicketResponse:
+    async def update_ticket(ticket_id: str, payload: TicketUpdate) -> TicketResponse:
         return TicketResponse.from_ticket(store.update(ticket_id, payload))
 
     @app.delete(
@@ -154,7 +157,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         status_code=status.HTTP_204_NO_CONTENT,
         responses={404: {"model": ErrorResponse}},
     )
-    def delete_ticket(ticket_id: str) -> Response:
+    async def delete_ticket(ticket_id: str) -> Response:
         store.delete(ticket_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -163,7 +166,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         response_model=SearchResponse,
         responses={422: {"model": ErrorResponse}},
     )
-    def search_tickets(payload: SearchRequest) -> SearchResponse:
+    async def search_tickets(payload: SearchRequest) -> SearchResponse:
         return search.search(
             payload.query,
             filters=payload.filters,
@@ -172,7 +175,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         )
 
     @app.get("/health", response_model=HealthResponse)
-    def health() -> HealthResponse:
+    async def health() -> HealthResponse:
         ticket_count = store.count()
         return HealthResponse(
             status="healthy",

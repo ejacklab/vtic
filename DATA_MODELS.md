@@ -441,17 +441,22 @@ class SearchFilters(VticBaseModel):
 
 class SearchRequest(VticBaseModel):
     """
-    Request body for hybrid search endpoint.
-    Supports both keyword (BM25) and semantic (dense embedding) search.
+    Request body for the current search endpoint.
+    Today this is keyword-only (BM25-style) search with filters and pagination.
+    Semantic search and alternate sort modes are planned but not implemented yet.
     """
     
     query: str = Field(default="", max_length=1000, description="Search query string")
     filters: SearchFilters = Field(default_factory=SearchFilters)
-    semantic: bool = Field(default=False, description="Enable semantic search")
+    semantic: bool = Field(
+        default=False,
+        description="Reserved for future semantic search support; true is currently rejected",
+    )
     topk: int = Field(default=10, ge=1, le=100, description="Max results to return")
     offset: int = Field(default=0, ge=0, description="Number of results to skip")
-    sort_by: str = Field(default="relevance", pattern=r"^(relevance|created_at|updated_at|severity|status)$")
-    sort_order: str = Field(default="desc", pattern=r"^(asc|desc)$")
+    # TODO: Planned fields not yet implemented by the current codebase:
+    # sort_by: Literal["relevance", "created_at", "updated_at", "severity", "status"]
+    # sort_order: Literal["asc", "desc"]
     
     @field_validator("query")
     @classmethod
@@ -487,7 +492,7 @@ class SearchResponse(VticBaseModel):
     results: list[SearchResult] = Field(default_factory=list)
     total: int = Field(ge=0, description="Total matching tickets")
     query: str = Field(description="Normalized search query")
-    semantic: bool = Field(description="Whether semantic search was used")
+    semantic: bool = Field(description="Whether semantic search was used; currently always false")
     limit: int = Field(ge=1, description="Results limit (page size)")
     offset: int = Field(ge=0, description="Results offset")
     has_more: bool = Field(description="Whether more results are available")

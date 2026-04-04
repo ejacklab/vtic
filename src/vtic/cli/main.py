@@ -7,11 +7,13 @@ from enum import StrEnum
 from pathlib import Path
 
 import typer
+from pydantic import ValidationError as PydanticValidationError
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from vtic.config import load_config
+from vtic.errors import ValidationError as VticValidationError
 from vtic.errors import VticError
 from vtic.models import (
     Category,
@@ -90,6 +92,10 @@ def _exit_with_error(exc: VticError) -> None:
     raise typer.Exit(code=1) from exc
 
 
+def _exit_with_validation_error(message: str) -> None:
+    _exit_with_error(VticValidationError(message))
+
+
 @app.command()
 def init(
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
@@ -137,6 +143,8 @@ def create(
             slug=slugify(title),
         )
         _print_ticket(ticket, "Created Ticket")
+    except (ValueError, PydanticValidationError) as exc:
+        _exit_with_validation_error(str(exc))
     except VticError as exc:
         _exit_with_error(exc)
 
@@ -288,6 +296,8 @@ def update(
         updates = TicketUpdate(**update_data)
         ticket = _resolve_store(dir).update(id, updates)
         _print_ticket(ticket, "Updated Ticket")
+    except (ValueError, PydanticValidationError) as exc:
+        _exit_with_validation_error(str(exc))
     except VticError as exc:
         _exit_with_error(exc)
 

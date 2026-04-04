@@ -143,9 +143,9 @@ def test_concurrent_id_generation(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     store.create(_make_ticket("C1", title="Existing cleanup"))
 
-    first = store.next_id(Category.CODE_QUALITY)
+    first = store._next_id(Category.CODE_QUALITY)
     store.create(_make_ticket(first, title="Queued cleanup"))
-    second = store.next_id(Category.CODE_QUALITY)
+    second = store._next_id(Category.CODE_QUALITY)
 
     assert first == "C2"
     assert second == "C3"
@@ -190,7 +190,7 @@ def test_list_empty(tmp_path: Path) -> None:
 def test_next_id_starts_at_1(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
 
-    assert store.next_id(Category.CODE_QUALITY) == "C1"
+    assert store._next_id(Category.CODE_QUALITY) == "C1"
 
 
 def test_count_counts_markdown_files_without_parsing(tmp_path: Path) -> None:
@@ -212,7 +212,7 @@ def test_next_id_uses_filename_scan_without_parsing(tmp_path: Path) -> None:
     (ticket_dir / "C10-invalid.md").write_text("not frontmatter", encoding="utf-8")
     (ticket_dir / "S99-security.md").write_text("not frontmatter", encoding="utf-8")
 
-    assert store.next_id(Category.CODE_QUALITY) == "C11"
+    assert store._next_id(Category.CODE_QUALITY) == "C11"
 
 
 def test_create_uses_expected_nested_path(tmp_path: Path) -> None:

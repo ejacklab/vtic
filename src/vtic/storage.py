@@ -45,6 +45,11 @@ class TicketStore:
         self.base_dir = Path(base_dir)
 
     def create(self, ticket: Ticket) -> Ticket:
+        """Write a pre-validated ticket directly.
+
+        This is a low-level helper and does not provide atomic ID allocation.
+        Callers that need safe concurrent creation should use `create_ticket()`.
+        """
         path = ticket_path(self.base_dir, ticket)
         self._write_ticket(ticket, path)
         return ticket
@@ -64,11 +69,15 @@ class TicketStore:
         tags: list[str],
         slug: str,
     ) -> Ticket:
+        """Create a ticket with locked, atomic ID allocation.
+
+        This is the only safe public API for creating new tickets concurrently.
+        """
         self.base_dir.mkdir(parents=True, exist_ok=True)
         lock_path = self.base_dir / ".vtic.lock"
         with lock_path.open("a+", encoding="utf-8") as lock_file:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            ticket_id = self.next_id(category)
+            ticket_id = self._next_id(category)
             now = utc_now()
             ticket = Ticket(
                 id=ticket_id,
@@ -191,7 +200,7 @@ class TicketStore:
         except OSError as exc:
             raise TicketDeleteError(ticket_id, str(exc)) from exc
 
-    def next_id(self, category: Category) -> str:
+    def _next_id(self, category: Category) -> str:
         prefix = CATEGORY_PREFIXES[category]
         highest = 0
         if not self.base_dir.exists():

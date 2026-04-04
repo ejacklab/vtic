@@ -7,7 +7,14 @@ import tomllib
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError as PydanticValidationError,
+    field_validator,
+    model_validator,
+)
 
 from .constants import DEFAULT_CONFIG_FILENAME, DEFAULT_GLOBAL_CONFIG_PATH
 from .errors import ConfigError
@@ -49,7 +56,7 @@ class ServerConfig(BaseModel):
 class SearchConfig(BaseModel):
     """Search configuration."""
 
-    model_config = {"validate_default": True}
+    model_config = ConfigDict(validate_default=True, validate_assignment=True)
 
     bm25_enabled: bool = Field(default=True)
     semantic_enabled: bool = Field(default=False)
@@ -77,7 +84,7 @@ class SearchConfig(BaseModel):
 class VticConfig(BaseModel):
     """Complete vtic configuration."""
 
-    model_config = {"validate_default": True}
+    model_config = ConfigDict(validate_default=True, validate_assignment=True)
 
     tickets: TicketsConfig = Field(default_factory=TicketsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -93,7 +100,7 @@ class VticConfig(BaseModel):
                 if not ticket_dir.is_absolute():
                     data["tickets"]["dir"] = path.parent / ticket_dir
             return cls(**data)
-        except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
+        except (OSError, tomllib.TOMLDecodeError, ValueError, PydanticValidationError) as exc:
             raise ConfigError(f"Invalid config file {path}: {exc}") from exc
 
     @classmethod
@@ -121,7 +128,7 @@ class VticConfig(BaseModel):
                 config.search.embedding_dimensions = int(dims)
 
             return config
-        except ValueError as exc:
+        except (ValueError, PydanticValidationError) as exc:
             raise ConfigError(f"Invalid environment configuration: {exc}") from exc
 
 
@@ -148,9 +155,12 @@ def load_config(explicit_path: Path | None = None) -> VticConfig:
     config = VticConfig.from_toml(path) if path is not None else VticConfig()
     env_config = VticConfig.from_env()
 
-    for env_var, (section, field) in _ENV_OVERRIDES.items():
-        if env_var not in os.environ:
-            continue
-        setattr(getattr(config, section), field, getattr(getattr(env_config, section), field))
+    try:
+        for env_var, (section, field) in _ENV_OVERRIDES.items():
+            if env_var not in os.environ:
+                continue
+            setattr(getattr(config, section), field, getattr(getattr(env_config, section), field))
+    except (ValueError, PydanticValidationError) as exc:
+        raise ConfigError(f"Invalid environment configuration: {exc}") from exc
 
     return config
