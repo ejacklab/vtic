@@ -333,7 +333,10 @@ def delete(
             console.print("[yellow]Deletion cancelled[/yellow]")
             raise typer.Exit(code=0)
         _resolve_store(dir).delete(id, force=force)
-        console.print(f"[green]Deleted ticket:[/green] {id.upper()}")
+        if force:
+            console.print(f"[green]Permanently deleted:[/green] {id.upper()}")
+        else:
+            console.print(f"[green]Deleted (moved to trash):[/green] {id.upper()}")
     except VticError as exc:
         _exit_with_error(exc)
 
@@ -349,6 +352,21 @@ def reindex(
         engine = TicketSearch(store)
         engine.build_index()
         console.print(f"[green]Rebuilt BM25 index for:[/green] {store.base_dir}")
+    except VticError as exc:
+        _exit_with_error(exc)
+
+
+@app.command()
+def restore(
+    id: str = typer.Option(..., "--id", help="Ticket ID to restore from trash"),
+    dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
+) -> None:
+    """Restore a soft-deleted ticket from trash."""
+
+    try:
+        ticket = _resolve_store(dir).restore_from_trash(id)
+        console.print(f"[green]Restored ticket:[/green] {ticket.id}")
+        _print_ticket(ticket, "Restored Ticket")
     except VticError as exc:
         _exit_with_error(exc)
 

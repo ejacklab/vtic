@@ -345,7 +345,7 @@ def test_delete_ticket(tmp_path: Path) -> None:
     result = runner.invoke(app, ["delete", "--id", "C1", "--yes", "--force"], env=_env(tmp_path))
 
     assert result.exit_code == 0
-    assert "Deleted ticket" in result.output
+    assert "Permanently deleted" in result.output
     assert not any((tmp_path / "tickets").rglob("*.md"))
 
 
@@ -355,6 +355,7 @@ def test_delete_ticket_soft_delete_moves_to_trash(tmp_path: Path) -> None:
     result = runner.invoke(app, ["delete", "--id", "C1", "--yes"], env=_env(tmp_path))
 
     assert result.exit_code == 0
+    assert "Deleted (moved to trash)" in result.output
     assert not (_make_store(tmp_path).base_dir / "ejacklab" / "open-dsearch" / "code_quality" / "C1-trash-me.md").exists()
     assert (_make_store(tmp_path).base_dir / ".trash" / "ejacklab" / "open-dsearch" / "code_quality" / "C1-trash-me.md").exists()
 

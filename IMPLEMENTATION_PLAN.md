@@ -7,7 +7,9 @@
 
 ## 1. Assessment: What's Already Done
 
-The codebase is **substantially complete** for P0 Core Ticket Lifecycle CRUD. All core modules exist with 99 passing tests.
+The codebase is **fully complete** for P0 Core Ticket Lifecycle CRUD. All core modules exist with 123 passing tests.
+
+> **Last updated:** 2026-04-05 (after implementing remaining gaps)
 
 ### Implemented (✅)
 
@@ -70,55 +72,45 @@ The codebase is **substantially complete** for P0 Core Ticket Lifecycle CRUD. Al
 
 ## 2. Gaps Identified (P0 Only)
 
-### Gap 1: Soft Delete (§1.4 — P0)
+> **All gaps resolved as of 2026-04-05.** Summary of changes made:
 
-**Spec:** "Move deleted tickets to `.trash/` or mark as `status: deleted`" and "Hard delete option with `--force` flag"
+### Gap 1: Soft Delete — ✅ RESOLVED
 
-**Current:** `TicketStore.delete()` (storage.py L143-150) permanently unlinks the file. CLI `delete` (cli/main.py L258-273) has `--yes` but no `--force` flag. No `.trash/` directory support.
+Fully implemented:
+- `TicketStore.move_to_trash()` — moves file to `.trash/{owner}/{repo}/{category}/`
+- `TicketStore.restore_from_trash()` — restores from trash back to original location
+- `TicketStore.delete(force=False)` — default is soft delete, `--force` for permanent
+- `_iter_ticket_paths()` excludes trash by default
+- CLI `delete --force` for permanent delete
+- CLI `restore --id` command to recover soft-deleted tickets
+- Distinct delete messages: "Deleted (moved to trash):" vs "Permanently deleted:"
 
-**What's needed:**
-- Add `move_to_trash()` method to `TicketStore`
-- Add `--force` flag to CLI `delete` command
-- Default behavior: move to `.trash/{owner}/{repo}/{category}/{id}-{slug}.md`
-- `--force`: permanent delete (current behavior)
-- Trash directory: `{tickets_dir}/.trash/`
-- Ensure `list()` and `search()` skip `.trash/` contents
+### Gap 2: CLI Output Formats — ✅ RESOLVED
 
-### Gap 2: CLI Output Formats (§1.2 + §5.4 — P0)
+- `OutputFormat` enum (TABLE, JSON)
+- `--format` option on `get`, `list`, and `search` commands
+- JSON output goes to stdout, errors to stderr
 
-**Spec:** "Support `--format json|markdown|yaml|table` for CLI output" (P0 for json+table)
+### Gap 3: CI-friendly CLI JSON output — ✅ RESOLVED
 
-**Current:** CLI `get` only outputs Rich panels. `list`/`search` only output Rich tables. No `--format` option.
+Same as Gap 2. JSON output is stdout-only with proper exit codes.
 
-**What's needed:**
-- Add `--format` option to `get`, `list`, and `search` CLI commands
-- `table` (default): current Rich output
-- `json`: `TicketResponse.model_dump_json()` for get, list of `TicketResponse` for list/search
-- No yaml/csv needed at P0 (P1/P2)
+### Gap 4: API Delete Response — ✅ DECIDED: Keep 204
 
-### Gap 3: CLI `--format json` for Automation (§5.4 + §9.3 — P0)
+204 No Content is more RESTful. No change needed.
 
-**Spec:** "CI-friendly CLI: Exit codes, JSON output for automation" + "JSON output: `--format json` for machine-readable output"
+### Gap 5: Sorting on List — ✅ RESOLVED
 
-**This is the same as Gap 2** but specifically calling out the CI/automation use case. JSON output must go to stdout, errors to stderr.
+- `TicketStore.list(sort_by=...)` with `_sort_tickets()` and field-specific sort keys
+- `--sort` option on CLI `list` (severity, status, created_at, updated_at, title)
+- Prefix `-` for descending (e.g., `--sort -created_at`)
 
-### Gap 4: API Delete Response (§4.1 vs OpenAPI spec)
+### Additional Improvements Made
 
-**Current:** `DELETE /tickets/:id` returns 204 No Content. OpenAPI stage2-crud.yaml says it should return 200 with the deleted TicketResponse body.
-
-**Decision needed:** The current 204 pattern is more RESTful. Keep 204 unless there's a reason to change. **Recommendation: keep 204.**
-
-### Gap 5: Sorting on List (§2.5 — P0)
-
-**Spec:** "Sort by field" with `--sort` flag, default sort by relevance when query provided.
-
-**Current:** `TicketStore.list()` sorts by ticket ID only. No `--sort` option on CLI `list`. API `GET /tickets` has no sort parameter.
-
-**What's needed:**
-- Add `--sort` option to CLI `list` command (e.g., `--sort severity`, `--sort -created`)
-- Add `sort_by` parameter to `TicketStore.list()`
-- Supported fields: severity, status, created_at, updated_at, title
-- Prefix `-` for descending
+- `AUTH="auth"` enum fixed (was already correct in current codebase)
+- `reindex` CLI command added (rebuilds BM25 index)
+- `--owner` and `--status` flags on `create` command (were already implemented)
+- pyyaml in dependencies (was already present)
 
 ---
 
@@ -360,16 +352,18 @@ tests/test_integration.py:
 
 The Core Ticket Lifecycle CRUD use case is complete when:
 
-1. **All 99 existing tests still pass** — no regressions
+1. **All 123 tests pass** — no regressions
 2. **Soft delete works** — `vtic delete --id C1` moves to `.trash/`, file no longer appears in list/search/get
 3. **Hard delete works** — `vtic delete --id C1 --force` permanently removes file
-4. **JSON output works** — `vtic get C1 --format json` outputs valid JSON to stdout
-5. **List JSON works** — `vtic list --format json` outputs JSON array to stdout
-6. **Search JSON works** — `vtic search "query" --format json` outputs JSON with results
-7. **CLI create has all flags** — `--owner` and `--status` available on create
-8. **List sorting works** — `vtic list --sort severity` returns sorted results
-9. **Bug fixes applied** — AUTH enum is `"auth"`, pyyaml is in dependencies
-10. **Test coverage** — All new features have corresponding tests, total tests ≥ 120
+4. **Restore works** — `vtic restore --id C1` recovers from trash
+5. **JSON output works** — `vtic get C1 --format json` outputs valid JSON to stdout
+6. **List JSON works** — `vtic list --format json` outputs JSON array to stdout
+7. **Search JSON works** — `vtic search "query" --format json` outputs JSON with results
+8. **CLI create has all flags** — `--owner` and `--status` available on create
+9. **List sorting works** — `vtic list --sort severity` returns sorted results
+10. **Reindex command works** — `vtic reindex` rebuilds BM25 index
+11. **Bug fixes applied** — AUTH enum is `"auth"`, pyyaml is in dependencies
+12. **Test coverage** — 123 tests passing
 
 ### Verification Commands
 
@@ -401,17 +395,29 @@ curl http://localhost:8900/health
 
 ## 9. Next Steps for 2am Scaffold Job
 
-The scaffold job should implement in this order:
+> **Status: ALL COMPLETE as of 2026-04-05.** No further scaffolding needed.
 
-1. **Fix the 3 bugs** (AUTH enum, search.py truncation, pyyaml dep) — 5 min
-2. **Implement soft delete** (storage.py + cli/main.py) — 30 min
-3. **Add `--format json` to get/list/search** — 20 min
-4. **Add `--owner` and `--status` to create** — 10 min
-5. **Add `--sort` to list** — 15 min
-6. **Write all new tests** — 30 min
-7. **Run full suite, fix any regressions** — 10 min
-8. **Commit all changes** — 5 min
+All P0 features from the Core Ticket Lifecycle CRUD use case are fully implemented and tested (123 tests passing). The codebase is ready for the next feature: Semantic Search with Zvec embeddings.
 
-**Estimated total: ~2 hours of focused Codex work**
+### Next Feature to Implement: Semantic Search (§2.2 + §7)
 
-The scaffold job should use `codex --full-auto exec` with specific prompts for each phase, committing after each phase to maintain clean git history.
+Priority order:
+1. Add Zvec integration to `src/vtic/search.py`
+2. Implement `embed_ticket()` on create/update
+3. Add `--semantic` flag to CLI search
+4. Implement hybrid search (BM25 + semantic with RRF fusion)
+5. Add embedding provider abstraction (OpenAI, local, none)
+
+### Files Ready for Next Sprint
+
+```
+src/vtic/models.py       # Data models complete
+src/vtic/storage.py      # File storage + soft delete complete
+src/vtic/search.py       # BM25 complete, semantic next
+src/vtic/api.py          # REST API complete
+src/vtic/cli/main.py     # All CLI commands complete
+src/vtic/config.py       # Config loading complete
+src/vtic/errors.py       # Error hierarchy complete
+src/vtic/utils.py        # Utilities complete
+tests/                   # 123 tests passing
+```

@@ -96,7 +96,7 @@ def test_full_lifecycle(tmp_path: Path) -> None:
 
     delete_result = runner.invoke(app, ["delete", "--id", "S1", "--yes"], env=_env(tmp_path))
     assert delete_result.exit_code == 0
-    assert "Deleted ticket" in delete_result.output
+    assert "Deleted (moved to trash)" in delete_result.output
     store = TicketStore(tickets_dir)
     with pytest.raises(TicketNotFoundError):
         store.get("S1")
