@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
 from vtic.cli.main import app
@@ -375,6 +377,57 @@ def test_delete_requires_confirmation(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "Deletion cancelled" in result.output
     assert _make_store(tmp_path).get("C1").id == "C1"
+
+
+def test_delete_yes_skips_confirmation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Skip prompt"], env=_env(tmp_path))
+
+    def _unexpected_confirm(*args: object, **kwargs: object) -> bool:
+        raise AssertionError("typer.confirm should not be called when --yes is set")
+
+    monkeypatch.setattr(typer, "confirm", _unexpected_confirm)
+
+    result = runner.invoke(app, ["delete", "--id", "C1", "--yes"], env=_env(tmp_path))
+
+    assert result.exit_code == 0
+    assert "Delete ticket C1?" not in result.output
+    assert "Deleted (moved to trash)" in result.output
+    assert (_make_store(tmp_path).base_dir / ".trash" / "ejacklab" / "open-dsearch" / "code_quality" / "C1-skip-prompt.md").exists()
+
+
+def test_list_empty_outputs_empty_table(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["list"], env=_env(tmp_path))
+
+    assert result.exit_code == 0
+    assert "Tickets" in result.output
+
+
+def test_search_no_results_prints_empty_state(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["search", "missing-term"], env=_env(tmp_path))
+
+    assert result.exit_code == 0
+    assert "No results found." in result.output
+
+
+def test_restore_ticket_from_trash(tmp_path: Path) -> None:
+    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Restore me"], env=_env(tmp_path))
+    runner.invoke(app, ["delete", "--id", "C1", "--yes"], env=_env(tmp_path))
+
+    result = runner.invoke(app, ["restore", "--id", "C1"], env=_env(tmp_path))
+
+    assert result.exit_code == 0
+    assert "Restored ticket:" in result.output
+    assert _make_store(tmp_path).get("C1").title == "Restore me"
+
+
+def test_list_invalid_sort_returns_clean_error(tmp_path: Path) -> None:
+    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Sortable"], env=_env(tmp_path))
+
+    result = runner.invoke(app, ["list", "--sort", "invalid"], env=_env(tmp_path))
+
+    assert result.exit_code == 1
+    assert "Unsupported sort field: invalid" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_search_json_format(tmp_path: Path) -> None:

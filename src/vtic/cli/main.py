@@ -205,6 +205,8 @@ def list_tickets(
                 ticket.repo,
             )
         console.print(table)
+    except (ValueError, PydanticValidationError) as exc:
+        _exit_with_validation_error(str(exc))
     except VticError as exc:
         _exit_with_error(exc)
 

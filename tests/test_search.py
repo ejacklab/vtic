@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket
-from vtic.search import TicketSearch
+from vtic.search import TicketSearch, _BuiltinBM25
 from vtic.storage import TicketStore
 from vtic.utils import slugify
 
@@ -175,6 +175,16 @@ def test_empty_results(store: TicketStore) -> None:
     assert response.has_more is False
 
 
+def test_search_empty_store_returns_empty_response(tmp_path: Path) -> None:
+    engine = TicketSearch(TicketStore(tmp_path / "tickets"))
+
+    response = engine.search("")
+
+    assert response.total == 0
+    assert response.results == []
+    assert response.has_more is False
+
+
 def test_search_ranking(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     tickets = [
@@ -261,3 +271,57 @@ def test_special_characters_in_query(store: TicketStore) -> None:
 
     assert response.total >= 1
     assert response.results[0].id == "S1"
+
+
+def test_search_with_tokenless_corpus_returns_empty(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    store.create(
+        _make_ticket(
+            "C1",
+            "x",
+            description="y",
+            repo="owner/tokenless",
+        )
+    )
+    engine = TicketSearch(store)
+
+    response = engine.search("auth")
+
+    assert response.total == 0
+    assert response.results == []
+    assert response.has_more is False
+
+
+def test_search_handles_bm25_empty_scores(store: TicketStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = TicketSearch(store)
+    engine.build_index()
+
+    monkeypatch.setattr(engine._bm25, "get_scores", lambda query: [])
+
+    response = engine.search("cors")
+
+    assert response.total == 0
+    assert response.results == []
+    assert response.has_more is False
+
+
+def test_search_falls_back_when_bm25_scores_are_non_positive(
+    store: TicketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = TicketSearch(store)
+    engine.build_index()
+
+    monkeypatch.setattr(engine._bm25, "get_scores", lambda query: [0.0] * len(store.list()))
+
+    response = engine.search("analytics worker")
+
+    assert response.total == 2
+    assert [result.id for result in response.results] == ["P3", "C6"]
+    assert response.results[0].score == 1.0
+    assert response.results[0].bm25_score == 0.0
+
+
+def test_builtin_bm25_empty_corpus_scores_empty() -> None:
+    scorer = _BuiltinBM25([])
+
+    assert scorer.get_scores(["auth"]) == []
