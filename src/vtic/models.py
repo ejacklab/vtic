@@ -9,7 +9,7 @@ from typing import Generic, Literal, Optional, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .utils import normalize_tags, slugify
+from .utils import normalize_tags
 
 
 class Severity(StrEnum):
@@ -77,6 +77,7 @@ from .constants import CATEGORY_PREFIXES as CATEGORY_PREFIXES_RAW
 CATEGORY_PREFIXES: dict[Category, str] = {
     Category(category_name): prefix for category_name, prefix in CATEGORY_PREFIXES_RAW.items()
 }
+
 
 class VticBaseModel(BaseModel):
     """Base model with common configuration for all vtic models."""
@@ -350,7 +351,9 @@ class TicketResponse(VticBaseModel):
 class SearchFilters(VticBaseModel):
     """Filter parameters for ticket search."""
 
-    severity: Optional[list[Severity]] = Field(default=None, description="Filter by severity levels (OR)")
+    severity: Optional[list[Severity]] = Field(
+        default=None, description="Filter by severity levels (OR)"
+    )
     status: Optional[list[Status]] = Field(default=None, description="Filter by statuses (OR)")
     repo: Optional[list[str]] = Field(default=None, description="Filter by repos (supports wildcards)")
     category: Optional[list[Category]] = Field(default=None, description="Filter by categories (OR)")
@@ -361,6 +364,29 @@ class SearchFilters(VticBaseModel):
     tags: Optional[list[str]] = Field(default=None, description="Filter by tags (AND)")
     has_fix: Optional[bool] = Field(default=None)
     owner: Optional[str] = Field(default=None)
+
+    @field_validator("repo")
+    @classmethod
+    def normalize_repo_filters(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        normalized = [str(value).strip().lower() for value in v if str(value).strip()]
+        return normalized or None
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tag_filters(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return normalize_tags(v)
+
+    @field_validator("owner", mode="before")
+    @classmethod
+    def normalize_owner_filter(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = Ticket._normalize_single_line(v)
+        return normalized or None
 
 
 class SearchRequest(VticBaseModel):
@@ -472,6 +498,7 @@ class HealthResponse(VticBaseModel):
     version: str = Field(description="vtic version")
     timestamp: str = Field(description="Response timestamp (ISO 8601)")
     checks: dict[str, bool] = Field(default_factory=dict)
+    corrupted_tickets: list[str] = Field(default_factory=list)
 
 
 class CountByField(VticBaseModel):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -85,6 +86,16 @@ def _print_ticket_list_json(tickets: list[Ticket]) -> None:
 
 def _print_search_json(response: SearchResponse) -> None:
     _write_json(response.model_dump_json())
+
+
+def _parse_datetime_option(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        _exit_with_validation_error(f"Invalid datetime value: {value}")
+        raise AssertionError("unreachable") from exc
 
 
 def _exit_with_error(exc: VticError) -> None:
@@ -170,10 +181,20 @@ def get(
 @app.command(name="list")
 def list_tickets(
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
+    owner: str | None = typer.Option(None, "--owner", help="Filter by owner"),
+    tags: str | None = typer.Option(None, "--tags", help="Filter by comma-separated tags"),
     category: Category | None = typer.Option(None, "--category", help="Filter by category"),
     severity: Severity | None = typer.Option(None, "--severity", help="Filter by severity"),
     status: Status | None = typer.Option(None, "--status", help="Filter by status"),
-    sort: str | None = typer.Option(None, "--sort", help="Sort by severity, status, created_at, updated_at, title"),
+    created_after: str | None = typer.Option(None, "--created-after", help="Filter by created_at >= timestamp"),
+    created_before: str | None = typer.Option(None, "--created-before", help="Filter by created_at <= timestamp"),
+    updated_after: str | None = typer.Option(None, "--updated-after", help="Filter by updated_at >= timestamp"),
+    updated_before: str | None = typer.Option(None, "--updated-before", help="Filter by updated_at <= timestamp"),
+    sort: str | None = typer.Option(
+        None,
+        "--sort",
+        help="Sort by severity, status, created_at, updated_at, title",
+    ),
     format: OutputFormat = typer.Option(OutputFormat.TABLE, "--format", help="Output format"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
@@ -182,9 +203,15 @@ def list_tickets(
     try:
         filters = SearchFilters(
             repo=[repo] if repo else None,
+            owner=owner,
+            tags=tags.split(",") if tags else None,
             category=[category] if category else None,
             severity=[severity] if severity else None,
             status=[status] if status else None,
+            created_after=_parse_datetime_option(created_after),
+            created_before=_parse_datetime_option(created_before),
+            updated_after=_parse_datetime_option(updated_after),
+            updated_before=_parse_datetime_option(updated_before),
         )
         tickets = _resolve_store(dir).list(filters, sort_by=sort)
 
@@ -306,8 +333,8 @@ def update(
 
 @app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", "--host", help="Bind address"),
-    port: int = typer.Option(8900, "--port", help="Server port"),
+    host: str | None = typer.Option(None, "--host", help="Bind address"),
+    port: int | None = typer.Option(None, "--port", help="Server port"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Start the HTTP API server."""
@@ -318,7 +345,11 @@ def serve(
     config = load_config()
     tickets_dir = dir or config.tickets.dir
     app_instance = create_app(str(tickets_dir))
-    uvicorn.run(app_instance, host=host, port=port)
+    uvicorn.run(
+        app_instance,
+        host=host or config.server.host,
+        port=port or config.server.port,
+    )
 
 
 @app.command()
@@ -352,7 +383,7 @@ def reindex(
     try:
         store = _resolve_store(dir)
         engine = TicketSearch(store)
-        engine.build_index()
+        engine.build_index(persist=True)
         console.print(f"[green]Rebuilt BM25 index for:[/green] {store.base_dir}")
     except VticError as exc:
         _exit_with_error(exc)

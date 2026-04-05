@@ -417,6 +417,22 @@ def test_list_filters_by_has_fix_and_owner(tmp_path: Path) -> None:
     assert [ticket.id for ticket in results] == ["C1"]
 
 
+def test_list_skips_corrupt_files_and_collects_errors(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    store.create(_make_ticket("C1", title="Healthy ticket", repo="acme/app"))
+    broken_path = (
+        store.base_dir / "acme" / "app" / "code_quality" / "C2-broken-ticket.md"
+    )
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text("---\nid: C2\ntitle: Broken\n---\n", encoding="utf-8")
+
+    results = store.list()
+
+    assert [ticket.id for ticket in results] == ["C1"]
+    assert len(store.last_list_errors) == 1
+    assert store.last_list_errors[0].field == "acme/app/code_quality/C2-broken-ticket.md"
+
+
 def test_soft_delete_moves_file_to_trash(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Trash me", repo="acme/app")

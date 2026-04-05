@@ -168,6 +168,42 @@ def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
     assert [ticket["id"] for ticket in body["data"]] == ["S1"]
 
 
+def test_list_with_owner_tags_and_date_filters(
+    client: TestClient, store: TicketStore
+) -> None:
+    store.create(
+        _make_ticket(
+            "C1",
+            title="Owned API ticket",
+            owner="smoke01",
+            tags=["auth", "api"],
+        )
+    )
+    store.create(
+        _make_ticket(
+            "C2",
+            title="Wrong owner",
+            owner="alex",
+            tags=["auth", "api"],
+        )
+    )
+
+    response = client.get(
+        "/tickets",
+        params={
+            "owner": "smoke01",
+            "tags": ["auth", "api"],
+            "created_after": "2026-03-16T09:00:00Z",
+            "updated_before": "2026-03-16T11:00:00Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [ticket["id"] for ticket in body["data"]] == ["C1"]
+
+
 def test_list_rejects_invalid_enum_query_param(client: TestClient) -> None:
     response = client.get("/tickets", params={"severity": "urgent"})
 
@@ -175,14 +211,31 @@ def test_list_rejects_invalid_enum_query_param(client: TestClient) -> None:
     assert response.json()["message"] == "Request validation failed"
 
 
-def test_health_uses_store_count(client: TestClient, store: TicketStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_health_reports_healthy_store(client: TestClient, store: TicketStore) -> None:
     store.create(_make_ticket("C1", title="Cleanup helpers"))
-    monkeypatch.setattr(store, "list", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("list() called")))
 
     response = client.get("/health")
 
     assert response.status_code == 200
     assert response.json()["ticket_count"] == 1
+    assert response.json()["status"] == "healthy"
+    assert response.json()["corrupted_tickets"] == []
+
+
+def test_health_reports_corrupted_ticket(client: TestClient, store: TicketStore) -> None:
+    store.create(_make_ticket("C1", title="Healthy ticket", repo="acme/app"))
+    broken_path = store.base_dir / "acme" / "app" / "code_quality" / "C2-broken.md"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text("---\nid: C2\ntitle: Broken\n---\n", encoding="utf-8")
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["index_status"] == "corrupted"
+    assert body["checks"] == {"storage": False, "search": False}
+    assert body["corrupted_tickets"] == ["acme/app/code_quality/C2-broken.md"]
 
 
 def test_update_ticket(client: TestClient, store: TicketStore) -> None:

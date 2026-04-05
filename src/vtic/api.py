@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, Response, status
@@ -23,7 +24,6 @@ from vtic.models import (
     SearchResponse,
     Severity,
     Status,
-    Ticket,
     TicketCreate,
     TicketResponse,
     TicketUpdate,
@@ -117,6 +117,12 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         status_value: Status | None = Query(None, alias="status"),
         category: Category | None = Query(None),
         repo: str | None = Query(None),
+        owner: str | None = Query(None),
+        tags: list[str] | None = Query(None),
+        created_after: datetime | None = Query(None),
+        created_before: datetime | None = Query(None),
+        updated_after: datetime | None = Query(None),
+        updated_before: datetime | None = Query(None),
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
     ) -> PaginatedResponse[TicketResponse]:
@@ -124,7 +130,13 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
             severity=[severity] if severity else None,
             status=[status_value] if status_value else None,
             category=[category] if category else None,
-            repo=[repo.lower()] if repo else None,
+            repo=[repo] if repo else None,
+            owner=owner,
+            tags=tags,
+            created_after=created_after,
+            created_before=created_before,
+            updated_after=updated_after,
+            updated_before=updated_before,
         )
         tickets = store.list(filters)
         page = tickets[offset : offset + limit]
@@ -176,14 +188,17 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
-        ticket_count = store.count()
+        tickets, errors = store.list_with_errors()
+        corrupted_tickets = [detail.field for detail in errors if detail.field]
+        is_healthy = not errors
         return HealthResponse(
-            status="healthy",
-            ticket_count=ticket_count,
-            index_status="ready",
+            status="healthy" if is_healthy else "degraded",
+            ticket_count=len(tickets),
+            index_status="ready" if is_healthy else "corrupted",
             version=__version__,
             timestamp=utc_now().isoformat(),
-            checks={"storage": True, "search": True},
+            checks={"storage": is_healthy, "search": is_healthy},
+            corrupted_tickets=corrupted_tickets,
         )
 
     return app

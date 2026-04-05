@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from vtic.models import Category, SearchFilters, Severity, Status, Ticket
+from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from vtic.search import TicketSearch, _BuiltinBM25
 from vtic.storage import TicketStore
 from vtic.utils import slugify
@@ -319,6 +319,35 @@ def test_search_falls_back_when_bm25_scores_are_non_positive(
     assert [result.id for result in response.results] == ["P3", "C6"]
     assert response.results[0].score == 1.0
     assert response.results[0].bm25_score == 0.0
+
+
+def test_search_rebuilds_index_when_ticket_content_changes(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    store.create(
+        _make_ticket(
+            "C1",
+            "Old title",
+            description="legacy content",
+            repo="owner/cache",
+        )
+    )
+    engine = TicketSearch(store)
+
+    first = engine.search("legacy")
+    assert [result.id for result in first.results] == ["C1"]
+
+    store.update(
+        "C1",
+        TicketUpdate(
+            title="Updated auth title",
+            description="fresh auth content",
+            tags=["auth"],
+        ),
+    )
+
+    second = engine.search("auth")
+    assert [result.id for result in second.results] == ["C1"]
+    assert second.results[0].title == "Updated auth title"
 
 
 def test_builtin_bm25_empty_corpus_scores_empty() -> None:

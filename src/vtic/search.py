@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import time
@@ -78,8 +79,9 @@ class TicketSearch:
         self.store = store
         self._tickets: list[Ticket] = []
         self._tokenized_documents: list[list[str]] = []
-        self._ticket_ids: tuple[str, ...] = ()
+        self._ticket_signatures: tuple[str, ...] = ()
         self._bm25: _BuiltinBM25 | None = None
+        self._index_path = self.store.base_dir / ".vtic-search-index.json"
 
     def _tokenize(self, text: str) -> list[str]:
         """Split text on non-alphanumeric characters and drop short tokens."""
@@ -93,25 +95,111 @@ class TicketSearch:
 
         return ticket.search_text
 
-    def build_index(self, tickets: list[Ticket] | None = None) -> None:
+    def _ticket_signature(self, ticket: Ticket) -> str:
+        """Return a stable signature for cache invalidation."""
+
+        payload = {
+            "id": ticket.id,
+            "title": ticket.title,
+            "description": ticket.description,
+            "fix": ticket.fix,
+            "file": ticket.file,
+            "tags": ticket.tags,
+            "updated_at": ticket.updated_at.isoformat(),
+        }
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+    def _set_index_state(
+        self,
+        tickets: list[Ticket],
+        tokenized_documents: list[list[str]],
+    ) -> None:
+        """Update the active in-memory index state."""
+
+        self._tickets = list(tickets)
+        self._tokenized_documents = [list(document) for document in tokenized_documents]
+        self._ticket_signatures = tuple(
+            self._ticket_signature(ticket) for ticket in self._tickets
+        )
+        self._bm25 = (
+            _BuiltinBM25(self._tokenized_documents)
+            if self._tokenized_documents
+            else None
+        )
+
+    def _persist_index(self) -> None:
+        """Persist the current index to disk for future processes."""
+
+        if not self.store.base_dir.exists():
+            return
+
+        payload = {
+            "version": 1,
+            "ticket_signatures": list(self._ticket_signatures),
+            "tokenized_documents": self._tokenized_documents,
+        }
+        self._index_path.parent.mkdir(parents=True, exist_ok=True)
+        self._index_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def _load_persisted_index(self, tickets: list[Ticket]) -> bool:
+        """Load a persisted index when it matches the current ticket corpus."""
+
+        if not self._index_path.exists():
+            return False
+
+        try:
+            payload = json.loads(self._index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+
+        if payload.get("version") != 1:
+            return False
+
+        signatures = tuple(self._ticket_signature(ticket) for ticket in tickets)
+        cached_signatures = tuple(payload.get("ticket_signatures", []))
+        tokenized_documents = payload.get("tokenized_documents")
+        if (
+            signatures != cached_signatures
+            or not isinstance(tokenized_documents, list)
+            or len(tokenized_documents) != len(tickets)
+        ):
+            return False
+
+        if any(not isinstance(document, list) for document in tokenized_documents):
+            return False
+
+        self._set_index_state(
+            tickets,
+            [
+                [str(token) for token in document]
+                for document in tokenized_documents
+            ],
+        )
+        return True
+
+    def build_index(
+        self,
+        tickets: list[Ticket] | None = None,
+        *,
+        persist: bool = False,
+    ) -> None:
         """Build or rebuild the BM25 index for the provided ticket corpus."""
 
         corpus = list(tickets) if tickets is not None else self.store.list()
-        self._tickets = corpus
-        self._ticket_ids = tuple(ticket.id for ticket in corpus)
-        self._tokenized_documents = [self._tokenize(self._get_document(ticket)) for ticket in corpus]
-
-        if not self._tokenized_documents:
-            self._bm25 = None
-            return
-
-        self._bm25 = _BuiltinBM25(self._tokenized_documents)
+        tokenized_documents = [self._tokenize(self._get_document(ticket)) for ticket in corpus]
+        self._set_index_state(corpus, tokenized_documents)
+        if persist:
+            self._persist_index()
 
     def _ensure_index(self, tickets: list[Ticket]) -> None:
         """Ensure the cached index matches the current ticket corpus."""
 
-        ticket_ids = tuple(ticket.id for ticket in tickets)
-        if self._bm25 is None or self._ticket_ids != ticket_ids:
+        signatures = tuple(self._ticket_signature(ticket) for ticket in tickets)
+        if self._bm25 is not None and self._ticket_signatures == signatures:
+            return
+        if self._load_persisted_index(tickets):
+            return
+        if self._ticket_signatures != signatures or self._bm25 is None:
             self.build_index(tickets)
 
     def _build_result(
@@ -162,7 +250,7 @@ class TicketSearch:
 
         started_at = time.perf_counter()
         normalized_query = query.strip()
-        tickets = self.store.list(filters)
+        tickets = self.store.list()
 
         if not tickets:
             took_ms = math.ceil((time.perf_counter() - started_at) * 1000)
@@ -179,9 +267,12 @@ class TicketSearch:
 
         self._ensure_index(tickets)
         query_terms = self._tokenize(normalized_query)
+        filtered_tickets = [
+            ticket for ticket in tickets if self.store._matches_filters(ticket, filters)
+        ]
 
         if not query_terms:
-            sorted_tickets = sorted(tickets, key=self._ticket_sort_key)
+            sorted_tickets = sorted(filtered_tickets, key=self._ticket_sort_key)
             page = sorted_tickets[offset : offset + topk]
             results = [
                 self._build_result(ticket, score=1.0, bm25_score=None, query_terms=[])
@@ -231,7 +322,9 @@ class TicketSearch:
 
         if max_score > 0:
             # Normal BM25 ranking — exclude non-matching documents
-            for ticket, raw_score in zip(tickets, raw_scores, strict=True):
+            for ticket, raw_score in zip(self._tickets, raw_scores, strict=True):
+                if not self.store._matches_filters(ticket, filters):
+                    continue
                 if raw_score <= 0:
                     continue
                 normalized_score = raw_score / max_score
@@ -240,7 +333,7 @@ class TicketSearch:
             # BM25 returns all non-positive scores with very small corpora
             # (IDF penalty outweighs TF boost). Fall back to term-frequency matching.
             query_terms_set = set(query_terms)
-            for ticket in tickets:
+            for ticket in filtered_tickets:
                 doc_terms = set(self._tokenize(ticket.search_text))
                 overlap = len(query_terms_set & doc_terms)
                 if overlap > 0:

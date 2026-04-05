@@ -20,7 +20,16 @@ from .errors import (
     TicketReadError,
     TicketWriteError,
 )
-from .models import CATEGORY_PREFIXES, Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
+from .models import (
+    CATEGORY_PREFIXES,
+    Category,
+    ErrorDetail,
+    SearchFilters,
+    Severity,
+    Status,
+    Ticket,
+    TicketUpdate,
+)
 from .utils import isoformat_z, normalize_tags, ticket_path, utc_now
 
 
@@ -43,6 +52,7 @@ class TicketStore:
 
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
+        self._last_list_errors: list[ErrorDetail] = []
 
     def create(self, ticket: Ticket) -> Ticket:
         """Write a pre-validated ticket directly.
@@ -103,16 +113,47 @@ class TicketStore:
         return self._read_ticket(path, ticket_id=ticket_id)
 
     def list(self, filters: SearchFilters | None = None, sort_by: str | None = None) -> list[Ticket]:
+        tickets, _ = self.list_with_errors(filters=filters, sort_by=sort_by)
+        return tickets
+
+    def list_with_errors(
+        self,
+        filters: SearchFilters | None = None,
+        sort_by: str | None = None,
+        *,
+        limit: int | None = None,
+    ) -> tuple[list[Ticket], list[ErrorDetail]]:
         tickets: list[Ticket] = []
+        errors: list[ErrorDetail] = []
         if not self.base_dir.exists():
-            return tickets
+            self._last_list_errors = []
+            return tickets, errors
 
         for path in self._iter_ticket_paths():
-            ticket = self._read_ticket(path)
-            if self._matches_filters(ticket, filters):
+            try:
+                ticket = self._read_ticket(path)
+            except TicketReadError as exc:
+                errors.append(
+                    ErrorDetail(
+                        field=str(path.relative_to(self.base_dir)),
+                        message=exc.message,
+                        code=exc.error_code,
+                    )
+                )
+                continue
+
+            if self._matches_filters(ticket, filters) and (
+                limit is None or len(tickets) < limit
+            ):
                 tickets.append(ticket)
 
-        return self._sort_tickets(tickets, sort_by)
+        sorted_tickets = self._sort_tickets(tickets, sort_by)
+        self._last_list_errors = list(errors)
+        return sorted_tickets, errors
+
+    @property
+    def last_list_errors(self) -> list[ErrorDetail]:
+        return list(self._last_list_errors)
 
     def count(self) -> int:
         if not self.base_dir.exists():

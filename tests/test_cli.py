@@ -189,6 +189,61 @@ def test_list_with_filters(tmp_path: Path) -> None:
     assert "Code quality ticket" not in result.output
 
 
+def test_list_with_owner_tags_and_date_filters(tmp_path: Path) -> None:
+    runner.invoke(
+        app,
+        [
+            "create",
+            "--repo",
+            "ejacklab/open-dsearch",
+            "--owner",
+            "smoke01",
+            "--tags",
+            "auth,api",
+            "--title",
+            "Owned ticket",
+        ],
+        env=_env(tmp_path),
+    )
+    runner.invoke(
+        app,
+        [
+            "create",
+            "--repo",
+            "ejacklab/open-dsearch",
+            "--owner",
+            "alex",
+            "--tags",
+            "auth,api",
+            "--title",
+            "Wrong owner",
+        ],
+        env=_env(tmp_path),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "list",
+            "--owner",
+            "smoke01",
+            "--tags",
+            "auth,api",
+            "--created-after",
+            "2000-01-01T00:00:00Z",
+            "--updated-before",
+            "2100-01-01T00:00:00Z",
+            "--format",
+            "json",
+        ],
+        env=_env(tmp_path),
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert [ticket["id"] for ticket in payload] == ["C1"]
+
+
 def test_get_ticket_json_format(tmp_path: Path) -> None:
     runner.invoke(
         app,
@@ -446,7 +501,36 @@ def test_search_json_format(tmp_path: Path) -> None:
 
 
 def test_reindex_command(tmp_path: Path) -> None:
+    runner.invoke(
+        app,
+        ["create", "--repo", "ejacklab/open-dsearch", "--title", "Indexed ticket"],
+        env=_env(tmp_path),
+    )
     result = runner.invoke(app, ["reindex"], env=_env(tmp_path))
 
     assert result.exit_code == 0
     assert "Rebuilt BM25 index" in result.output
+    assert (tmp_path / "tickets" / ".vtic-search-index.json").exists()
+
+
+def test_serve_uses_config_defaults_when_host_and_port_not_passed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "vtic.toml"
+    config_path.write_text("[server]\nhost = \"127.0.0.9\"\nport = 9123\n", encoding="utf-8")
+    called: dict[str, object] = {}
+
+    def fake_run(app_instance, *, host: str, port: int) -> None:
+        called["host"] = host
+        called["port"] = port
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+
+    result = runner.invoke(
+        app,
+        ["serve"],
+        env={**_env(tmp_path), "VTIC_CONFIG": str(config_path)},
+    )
+
+    assert result.exit_code == 0
+    assert called == {"host": "127.0.0.9", "port": 9123}
