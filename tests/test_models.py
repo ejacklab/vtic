@@ -13,6 +13,7 @@ from vtic.models import (
     CATEGORY_PREFIXES,
     Category,
     CategoryLiteral,
+    SearchFilters,
     SearchRequest,
     Severity,
     SeverityLiteral,
@@ -218,6 +219,28 @@ def test_search_request_forbids_extra_fields() -> None:
 def test_search_request_rejects_semantic_true() -> None:
     with pytest.raises(PydanticValidationError, match="Semantic search is not yet implemented"):
         SearchRequest(query="auth", semantic=True)
+
+
+def test_search_filters_reject_invalid_created_range() -> None:
+    with pytest.raises(
+        PydanticValidationError,
+        match="created_after cannot be later than created_before",
+    ):
+        SearchFilters(
+            created_after=datetime(2026, 3, 17, 0, 0, tzinfo=UTC),
+            created_before=datetime(2026, 3, 16, 0, 0, tzinfo=UTC),
+        )
+
+
+def test_search_filters_reject_invalid_updated_range() -> None:
+    with pytest.raises(
+        PydanticValidationError,
+        match="updated_after cannot be later than updated_before",
+    ):
+        SearchFilters(
+            updated_after=datetime(2026, 3, 17, 0, 0, tzinfo=UTC),
+            updated_before=datetime(2026, 3, 16, 0, 0, tzinfo=UTC),
+        )
 
 
 def test_ticket_response_from_ticket(sample_ticket: Ticket) -> None:

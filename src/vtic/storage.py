@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import fnmatch
 import os
 import tempfile
@@ -11,6 +10,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows does not provide fcntl.
+    fcntl = None
 
 from .constants import VALID_STATUSES
 from .errors import (
@@ -30,7 +34,7 @@ from .models import (
     Ticket,
     TicketUpdate,
 )
-from .utils import isoformat_z, normalize_tags, ticket_path, utc_now
+from .utils import isoformat_z, normalize_tags, slugify, ticket_path, utc_now
 
 
 DESCRIPTION_DELIMITER = "<!-- DESCRIPTION -->"
@@ -53,6 +57,14 @@ class TicketStore:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
         self._last_list_errors: list[ErrorDetail] = []
+
+    @staticmethod
+    def _lock_exclusive(lock_file: Any) -> None:
+        """Acquire an advisory exclusive lock when the platform supports it."""
+
+        if fcntl is None:
+            return
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
 
     def create(self, ticket: Ticket) -> Ticket:
         """Write a pre-validated ticket directly.
@@ -86,7 +98,7 @@ class TicketStore:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         lock_path = self.base_dir / ".vtic.lock"
         with lock_path.open("a+", encoding="utf-8") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            self._lock_exclusive(lock_file)
             ticket_id = self._next_id(category)
             now = utc_now()
             ticket = Ticket(
@@ -161,20 +173,21 @@ class TicketStore:
         return sum(1 for _ in self._iter_ticket_paths())
 
     def update(self, ticket_id: str, updates: TicketUpdate) -> Ticket:
-        current, current_path = self._find_ticket_path(ticket_id)
-        data = current.model_dump()
-        update_data = updates.model_dump(exclude_none=True)
-        data.update(update_data)
-        data["updated_at"] = utc_now()
-        updated_ticket = Ticket(**data)
-        new_path = ticket_path(self.base_dir, updated_ticket)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.base_dir / ".vtic.lock"
         temp_path: Path | None = None
-
-        try:
-            self.base_dir.mkdir(parents=True, exist_ok=True)
-            lock_path = self.base_dir / ".vtic.lock"
-            with lock_path.open("a+", encoding="utf-8") as lock_file:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            self._lock_exclusive(lock_file)
+            current, current_path = self._find_ticket_path(ticket_id)
+            data = current.model_dump()
+            update_data = updates.model_dump(exclude_unset=True)
+            data.update(update_data)
+            if "title" in update_data:
+                data["slug"] = slugify(str(update_data["title"]))
+            data["updated_at"] = utc_now()
+            updated_ticket = Ticket(**data)
+            new_path = ticket_path(self.base_dir, updated_ticket)
+            try:
                 new_path.parent.mkdir(parents=True, exist_ok=True)
                 with tempfile.NamedTemporaryFile(
                     mode="w",
@@ -188,15 +201,15 @@ class TicketStore:
                 temp_path = None
                 if new_path != current_path and current_path.exists():
                     current_path.unlink()
-        except OSError as exc:
-            if temp_path is not None:
-                try:
-                    temp_path.unlink()
-                except FileNotFoundError:
-                    pass
-                except OSError:
-                    pass
-            raise TicketWriteError(updated_ticket.id, str(exc)) from exc
+            except OSError as exc:
+                if temp_path is not None:
+                    try:
+                        temp_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        pass
+                raise TicketWriteError(updated_ticket.id, str(exc)) from exc
 
         return updated_ticket
 
@@ -291,16 +304,18 @@ class TicketStore:
 
     @staticmethod
     def _split_frontmatter(raw: str) -> tuple[str, str]:
-        if not raw.startswith("---\n"):
+        # Normalize CRLF -> LF for cross-platform markdown file compatibility
+        normalized = raw.replace("\r\n", "\n")
+        if not normalized.startswith("---\n"):
             raise ValueError("Missing frontmatter")
 
         closing_marker = "\n---\n"
-        end_index = raw.find(closing_marker, 4)
+        end_index = normalized.find(closing_marker, 4)
         if end_index == -1:
             raise ValueError("Invalid frontmatter")
 
-        frontmatter = raw[4:end_index]
-        body = raw[end_index + len(closing_marker) :]
+        frontmatter = normalized[4:end_index]
+        body = normalized[end_index + len(closing_marker) :]
         return frontmatter, body
 
     @staticmethod

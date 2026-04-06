@@ -207,8 +207,9 @@ def test_list_with_owner_tags_and_date_filters(
 def test_list_rejects_invalid_enum_query_param(client: TestClient) -> None:
     response = client.get("/tickets", params={"severity": "urgent"})
 
-    assert response.status_code == 422
+    assert response.status_code == 400
     assert response.json()["message"] == "Request validation failed"
+    assert response.json()["error_code"] == "VALIDATION_ERROR"
 
 
 def test_health_reports_healthy_store(client: TestClient, store: TicketStore) -> None:
@@ -307,11 +308,12 @@ def test_create_ticket_rejects_unknown_fields() -> None:
         TicketCreate(title="CORS wildcard in production", repo="ejacklab/open-dsearch", unexpected="value")
 
 
-def test_create_ticket_malformed_json_returns_422(client: TestClient) -> None:
+def test_create_ticket_malformed_json_returns_400(client: TestClient) -> None:
     response = client.post("/tickets", content="{", headers={"Content-Type": "application/json"})
 
-    assert response.status_code == 422
-    assert response.json()["message"] == "Request validation failed"
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid request body"
+    assert response.json()["error_code"] == "INVALID_REQUEST"
 
 
 def test_search_rejects_unknown_fields() -> None:
@@ -324,8 +326,9 @@ def test_search_rejects_semantic_true() -> None:
         SearchRequest(query="cors", semantic=True)
 
 
-def test_search_malformed_json_returns_422(client: TestClient) -> None:
+def test_search_malformed_json_returns_400(client: TestClient) -> None:
     response = client.post("/search", content="{", headers={"Content-Type": "application/json"})
 
-    assert response.status_code == 422
-    assert response.json()["message"] == "Request validation failed"
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid request body"
+    assert response.json()["error_code"] == "INVALID_REQUEST"

@@ -17,6 +17,8 @@ def slugify(text: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower())
     slug = slug.strip("-")
     slug = re.sub(r"-+", "-", slug)
+    if not slug:
+        slug = "unnamed"
     return slug[:100]
 
 

@@ -38,6 +38,11 @@ def _error_json(error: ErrorResponse) -> JSONResponse:
 
 
 def _validation_error_response(exc: RequestValidationError | PydanticValidationError) -> JSONResponse:
+    error_code = "VALIDATION_ERROR"
+    message = "Request validation failed"
+    if any(error["type"] == "json_invalid" for error in exc.errors()):
+        error_code = "INVALID_REQUEST"
+        message = "Invalid request body"
     details = [
         ErrorDetail(
             field=".".join(str(part) for part in error["loc"] if part != "body") or None,
@@ -47,10 +52,10 @@ def _validation_error_response(exc: RequestValidationError | PydanticValidationE
         for error in exc.errors()
     ]
     response = ErrorResponse(
-        error_code="VALIDATION_ERROR",
-        message="Request validation failed",
+        error_code=error_code,
+        message=message,
         details=details,
-        status_code=422,
+        status_code=400,
     )
     return _error_json(response)
 
@@ -87,7 +92,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         "/tickets",
         response_model=TicketResponse,
         status_code=status.HTTP_201_CREATED,
-        responses={422: {"model": ErrorResponse}},
+        responses={400: {"model": ErrorResponse}},
     )
     async def create_ticket(payload: TicketCreate) -> TicketResponse:
         repo_owner, repo_name = parse_repo(payload.repo)
@@ -110,7 +115,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
     @app.get(
         "/tickets",
         response_model=PaginatedResponse[TicketResponse],
-        responses={422: {"model": ErrorResponse}},
+        responses={400: {"model": ErrorResponse}},
     )
     async def list_tickets(
         severity: Severity | None = Query(None),
@@ -159,7 +164,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
     @app.patch(
         "/tickets/{ticket_id}",
         response_model=TicketResponse,
-        responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+        responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
     )
     async def update_ticket(ticket_id: str, payload: TicketUpdate) -> TicketResponse:
         return TicketResponse.from_ticket(store.update(ticket_id, payload))
@@ -176,7 +181,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
     @app.post(
         "/search",
         response_model=SearchResponse,
-        responses={422: {"model": ErrorResponse}},
+        responses={400: {"model": ErrorResponse}},
     )
     async def search_tickets(payload: SearchRequest) -> SearchResponse:
         return search.search(

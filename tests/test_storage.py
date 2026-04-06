@@ -297,6 +297,32 @@ def test_update_can_change_description_and_fix(tmp_path: Path) -> None:
     assert "Apply a shared abstraction." in content
 
 
+def test_update_can_clear_nullable_fields(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket(
+        "C1",
+        title="Needs cleanup",
+        description="Old description",
+        fix="Old fix",
+        owner="smoke01",
+        file="src/app.py:1-2",
+    )
+    store.create(ticket)
+
+    updated = store.update(
+        "C1",
+        TicketUpdate(description=None, fix=None, owner=None, file=None),
+    )
+
+    content = ticket_path(store.base_dir, updated).read_text(encoding="utf-8")
+    assert updated.description is None
+    assert updated.fix is None
+    assert updated.owner is None
+    assert updated.file is None
+    assert "Old description" not in content
+    assert "Old fix" not in content
+
+
 def test_description_preserves_literal_fix_heading(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket(
@@ -323,6 +349,21 @@ def test_update_can_change_category_and_move_file(tmp_path: Path) -> None:
     new_path = ticket_path(store.base_dir, updated)
 
     assert updated.category is Category.SECURITY
+    assert not old_path.exists()
+    assert new_path.exists()
+
+
+def test_update_title_recomputes_slug_and_renames_file(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket("C1", title="Original title")
+    old_path = ticket_path(store.base_dir, ticket)
+    store.create(ticket)
+
+    updated = store.update("C1", TicketUpdate(title="Updated auth title"))
+    new_path = ticket_path(store.base_dir, updated)
+
+    assert updated.slug == "updated-auth-title"
+    assert updated.title == "Updated auth title"
     assert not old_path.exists()
     assert new_path.exists()
 

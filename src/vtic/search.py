@@ -6,12 +6,23 @@ import json
 import math
 import re
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
+from vtic.errors import TicketReadError
 from vtic.models import SearchFilters, SearchResponse, SearchResult, Ticket
 from vtic.storage import TicketStore
 
 
 _TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+
+
+@dataclass
+class _CorpusCacheEntry:
+    ticket: Ticket
+    mtime_ns: int
+    signature: str
+    tokenized_document: list[str]
 
 
 class _BuiltinBM25:
@@ -82,6 +93,7 @@ class TicketSearch:
         self._ticket_signatures: tuple[str, ...] = ()
         self._bm25: _BuiltinBM25 | None = None
         self._index_path = self.store.base_dir / ".vtic-search-index.json"
+        self._corpus_cache: dict[Path, _CorpusCacheEntry] = {}
 
     def _tokenize(self, text: str) -> list[str]:
         """Split text on non-alphanumeric characters and drop short tokens."""
@@ -191,6 +203,50 @@ class TicketSearch:
         if persist:
             self._persist_index()
 
+    def _load_cached_tickets(self) -> list[Ticket]:
+        """Load tickets, re-parsing only files whose mtimes changed."""
+
+        tickets: list[Ticket] = []
+        next_cache: dict[Path, _CorpusCacheEntry] = {}
+
+        for path in self.store._iter_ticket_paths():
+            try:
+                mtime_ns = path.stat().st_mtime_ns
+            except OSError:
+                continue
+
+            entry = self._corpus_cache.get(path)
+            if entry is None or entry.mtime_ns != mtime_ns:
+                try:
+                    ticket = self.store._read_ticket(path)
+                except TicketReadError:
+                    continue
+                entry = _CorpusCacheEntry(
+                    ticket=ticket,
+                    mtime_ns=mtime_ns,
+                    signature=self._ticket_signature(ticket),
+                    tokenized_document=self._tokenize(self._get_document(ticket)),
+                )
+
+            next_cache[path] = entry
+            tickets.append(entry.ticket)
+
+        self._corpus_cache = next_cache
+        return sorted(tickets, key=self._ticket_sort_key)
+
+    def _rebuild_index_from_cache(self, tickets: list[Ticket]) -> None:
+        """Rebuild the BM25 state from cached metadata and tokenized content."""
+
+        tokenized_documents = []
+        for ticket in tickets:
+            path = self.store.base_dir / ticket.filepath
+            entry = self._corpus_cache.get(path)
+            if entry is None:
+                tokenized_documents.append(self._tokenize(self._get_document(ticket)))
+                continue
+            tokenized_documents.append(list(entry.tokenized_document))
+        self._set_index_state(tickets, tokenized_documents)
+
     def _ensure_index(self, tickets: list[Ticket]) -> None:
         """Ensure the cached index matches the current ticket corpus."""
 
@@ -200,7 +256,7 @@ class TicketSearch:
         if self._load_persisted_index(tickets):
             return
         if self._ticket_signatures != signatures or self._bm25 is None:
-            self.build_index(tickets)
+            self._rebuild_index_from_cache(tickets)
 
     def _build_result(
         self,
@@ -250,7 +306,7 @@ class TicketSearch:
 
         started_at = time.perf_counter()
         normalized_query = query.strip()
-        tickets = self.store.list()
+        tickets = self._load_cached_tickets()
 
         if not tickets:
             took_ms = math.ceil((time.perf_counter() - started_at) * 1000)

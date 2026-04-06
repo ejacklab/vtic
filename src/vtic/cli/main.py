@@ -125,11 +125,19 @@ def init(
 def create(
     repo: str = typer.Option(..., "--repo", help="Repository in owner/repo format"),
     owner: str | None = typer.Option(None, "--owner", help="Ticket owner"),
-    category: Category = typer.Option(Category.CODE_QUALITY, "--category", help="Ticket category"),
-    severity: Severity = typer.Option(Severity.MEDIUM, "--severity", help="Ticket severity"),
-    status: Status = typer.Option(Status.OPEN, "--status", help="Initial ticket status"),
+    category: Category = typer.Option(
+        Category.CODE_QUALITY, "--category", help="Ticket category"
+    ),
+    severity: Severity = typer.Option(
+        Severity.MEDIUM, "--severity", help="Ticket severity"
+    ),
+    status: Status = typer.Option(
+        Status.OPEN, "--status", help="Initial ticket status"
+    ),
     title: str = typer.Option(..., "--title", help="Ticket title"),
-    description: str | None = typer.Option(None, "--description", help="Ticket description"),
+    description: str | None = typer.Option(
+        None, "--description", help="Ticket description"
+    ),
     fix: str | None = typer.Option(None, "--fix", help="Fix description"),
     file: str | None = typer.Option(None, "--file", help="File reference"),
     tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
@@ -143,7 +151,7 @@ def create(
         ticket = store.create_ticket(
             title=title,
             repo=repo,
-            owner=owner or derived_owner,
+            owner=owner or derived_owner.lower(),
             category=category,
             severity=severity,
             status=status,
@@ -163,7 +171,9 @@ def create(
 @app.command()
 def get(
     ticket_id: str = typer.Argument(..., help="Ticket ID"),
-    format: OutputFormat = typer.Option(OutputFormat.TABLE, "--format", help="Output format"),
+    format: OutputFormat = typer.Option(
+        OutputFormat.TABLE, "--format", help="Output format"
+    ),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Get a ticket."""
@@ -182,20 +192,36 @@ def get(
 def list_tickets(
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
     owner: str | None = typer.Option(None, "--owner", help="Filter by owner"),
-    tags: str | None = typer.Option(None, "--tags", help="Filter by comma-separated tags"),
-    category: Category | None = typer.Option(None, "--category", help="Filter by category"),
-    severity: Severity | None = typer.Option(None, "--severity", help="Filter by severity"),
+    tags: str | None = typer.Option(
+        None, "--tags", help="Filter by comma-separated tags"
+    ),
+    category: Category | None = typer.Option(
+        None, "--category", help="Filter by category"
+    ),
+    severity: Severity | None = typer.Option(
+        None, "--severity", help="Filter by severity"
+    ),
     status: Status | None = typer.Option(None, "--status", help="Filter by status"),
-    created_after: str | None = typer.Option(None, "--created-after", help="Filter by created_at >= timestamp"),
-    created_before: str | None = typer.Option(None, "--created-before", help="Filter by created_at <= timestamp"),
-    updated_after: str | None = typer.Option(None, "--updated-after", help="Filter by updated_at >= timestamp"),
-    updated_before: str | None = typer.Option(None, "--updated-before", help="Filter by updated_at <= timestamp"),
+    created_after: str | None = typer.Option(
+        None, "--created-after", help="Filter by created_at >= timestamp"
+    ),
+    created_before: str | None = typer.Option(
+        None, "--created-before", help="Filter by created_at <= timestamp"
+    ),
+    updated_after: str | None = typer.Option(
+        None, "--updated-after", help="Filter by updated_at >= timestamp"
+    ),
+    updated_before: str | None = typer.Option(
+        None, "--updated-before", help="Filter by updated_at <= timestamp"
+    ),
     sort: str | None = typer.Option(
         None,
         "--sort",
         help="Sort by severity, status, created_at, updated_at, title",
     ),
-    format: OutputFormat = typer.Option(OutputFormat.TABLE, "--format", help="Output format"),
+    format: OutputFormat = typer.Option(
+        OutputFormat.TABLE, "--format", help="Output format"
+    ),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """List tickets."""
@@ -241,11 +267,17 @@ def list_tickets(
 @app.command()
 def search(
     query: str = typer.Argument(..., help="Search query text"),
-    severity: Severity | None = typer.Option(None, "--severity", help="Filter by severity"),
+    severity: Severity | None = typer.Option(
+        None, "--severity", help="Filter by severity"
+    ),
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
-    category: Category | None = typer.Option(None, "--category", help="Filter by category"),
+    category: Category | None = typer.Option(
+        None, "--category", help="Filter by category"
+    ),
     status: Status | None = typer.Option(None, "--status", help="Filter by status"),
-    format: OutputFormat = typer.Option(OutputFormat.TABLE, "--format", help="Output format"),
+    format: OutputFormat = typer.Option(
+        OutputFormat.TABLE, "--format", help="Output format"
+    ),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Search tickets by keyword."""
@@ -268,7 +300,9 @@ def search(
             console.print("[yellow]No results found.[/yellow]")
             return
 
-        table = Table(title=f"Search Results ({response.total} matches, {response.took_ms}ms)")
+        table = Table(
+            title=f"Search Results ({response.total} matches, {response.took_ms}ms)"
+        )
         for column in ("Score", "ID", "Title", "Severity", "Status", "Repo"):
             table.add_column(column)
         for result in response.results:
@@ -289,14 +323,18 @@ def search(
 def update(
     id: str = typer.Option(..., "--id", help="Ticket ID"),
     status: Status | None = typer.Option(None, "--status", help="New status"),
-    severity: Severity | None = typer.Option(None, "--severity", help="New severity"),
+    severity: Severity | None = typer.Option(
+        None, "--severity", help="New severity"
+    ),
     fix: str | None = typer.Option(None, "--fix", help="New fix description"),
     owner: str | None = typer.Option(None, "--owner", help="New owner"),
     category: str | None = typer.Option(None, "--category", help="New category"),
     file: str | None = typer.Option(None, "--file", help="New file reference"),
     tags: str | None = typer.Option(None, "--tags", help="New comma-separated tags"),
     title: str | None = typer.Option(None, "--title", help="New title"),
-    description: str | None = typer.Option(None, "--description", help="New description"),
+    description: str | None = typer.Option(
+        None, "--description", help="New description"
+    ),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Update a ticket."""
@@ -334,7 +372,9 @@ def update(
 @app.command()
 def serve(
     host: str | None = typer.Option(None, "--host", help="Bind address"),
-    port: int | None = typer.Option(None, "--port", help="Server port"),
+    port: int | None = typer.Option(
+        None, "--port", min=1, max=65535, help="Server port"
+    ),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Start the HTTP API server."""
@@ -356,7 +396,9 @@ def serve(
 def delete(
     id: str = typer.Option(..., "--id", help="Ticket ID"),
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation"),
-    force: bool = typer.Option(False, "--force", help="Permanently delete instead of moving to trash"),
+    force: bool = typer.Option(
+        False, "--force", help="Permanently delete instead of moving to trash"
+    ),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Delete a ticket."""

@@ -534,3 +534,10 @@ def test_serve_uses_config_defaults_when_host_and_port_not_passed(
 
     assert result.exit_code == 0
     assert called == {"host": "127.0.0.9", "port": 9123}
+
+
+def test_serve_rejects_out_of_range_port(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["serve", "--port", "70000"], env=_env(tmp_path))
+
+    assert result.exit_code != 0
+    assert "Invalid value for '--port'" in result.output

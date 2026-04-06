@@ -350,6 +350,28 @@ def test_search_rebuilds_index_when_ticket_content_changes(tmp_path: Path) -> No
     assert second.results[0].title == "Updated auth title"
 
 
+def test_search_reuses_cached_metadata_for_unchanged_tickets(
+    store: TicketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = TicketSearch(store)
+    first = engine.search("cors")
+    assert first.total >= 1
+
+    calls: list[str] = []
+    original_read_ticket = store._read_ticket
+
+    def tracking_read_ticket(*args, **kwargs):
+        calls.append(str(args[0]))
+        return original_read_ticket(*args, **kwargs)
+
+    monkeypatch.setattr(store, "_read_ticket", tracking_read_ticket)
+
+    second = engine.search("cors")
+
+    assert second.total == first.total
+    assert calls == []
+
+
 def test_builtin_bm25_empty_corpus_scores_empty() -> None:
     scorer = _BuiltinBM25([])
 

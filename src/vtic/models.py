@@ -388,6 +388,22 @@ class SearchFilters(VticBaseModel):
         normalized = Ticket._normalize_single_line(v)
         return normalized or None
 
+    @model_validator(mode="after")
+    def validate_date_ranges(self) -> Self:
+        if (
+            self.created_after is not None
+            and self.created_before is not None
+            and self.created_after > self.created_before
+        ):
+            raise ValueError("created_after cannot be later than created_before")
+        if (
+            self.updated_after is not None
+            and self.updated_before is not None
+            and self.updated_after > self.updated_before
+        ):
+            raise ValueError("updated_after cannot be later than updated_before")
+        return self
+
 
 class SearchRequest(VticBaseModel):
     """Request body for hybrid search endpoint."""
