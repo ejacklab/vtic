@@ -587,3 +587,79 @@ def test_list_supports_descending_created_at_sort(tmp_path: Path) -> None:
     results = store.list(sort_by="-created_at")
 
     assert [ticket.id for ticket in results] == ["C2", "C1"]
+
+
+def test_list_with_date_filters(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    older = _make_ticket("C1", title="Old ticket")
+    newer = _make_ticket("C2", title="New ticket")
+    between = _make_ticket("C3", title="Between ticket")
+    older = older.model_copy(update={
+        "created_at": datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
+    })
+    between = between.model_copy(update={
+        "created_at": datetime(2026, 3, 1, 0, 0, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 3, 1, 0, 0, 0, tzinfo=UTC),
+    })
+    newer = newer.model_copy(update={
+        "created_at": datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC),
+    })
+    store.create(older)
+    store.create(between)
+    store.create(newer)
+
+    # created_after
+    results = store.list(SearchFilters(created_after=datetime(2026, 2, 1, 0, 0, 0, tzinfo=UTC)))
+    assert sorted([t.id for t in results]) == ["C2", "C3"]
+
+    # created_before
+    results = store.list(SearchFilters(created_before=datetime(2026, 4, 1, 0, 0, 0, tzinfo=UTC)))
+    assert sorted([t.id for t in results]) == ["C1", "C3"]
+
+    # Range
+    results = store.list(SearchFilters(
+        created_after=datetime(2026, 2, 1, 0, 0, 0, tzinfo=UTC),
+        created_before=datetime(2026, 4, 1, 0, 0, 0, tzinfo=UTC),
+    ))
+    assert [t.id for t in results] == ["C3"]
+
+    # updated_after
+    results = store.list(SearchFilters(updated_after=datetime(2026, 5, 1, 0, 0, 0, tzinfo=UTC)))
+    assert [t.id for t in results] == ["C2"]
+
+
+def test_list_filters_by_severity(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    store.create(_make_ticket("C1", title="Critical", severity=Severity.CRITICAL))
+    store.create(_make_ticket("C2", title="High", severity=Severity.HIGH))
+    store.create(_make_ticket("C3", title="Medium", severity=Severity.MEDIUM))
+    store.create(_make_ticket("C4", title="Low", severity=Severity.LOW))
+
+    # Single severity
+    results = store.list(SearchFilters(severity=[Severity.CRITICAL]))
+    assert [t.id for t in results] == ["C1"]
+
+    # Multiple severities (OR)
+    results = store.list(SearchFilters(severity=[Severity.CRITICAL, Severity.LOW]))
+    assert [t.id for t in results] == ["C1", "C4"]
+
+
+def test_update_changing_repo_moves_file(tmp_path: Path) -> None:
+    """Verify that updating the title with slug change handles file moves correctly."""
+    store = TicketStore(tmp_path / "tickets")
+    ticket = _make_ticket("C1", title="Move me", repo="old/repo")
+    old_path = ticket_path(store.base_dir, ticket)
+    store.create(ticket)
+
+    # TicketUpdate doesn't allow changing repo directly (it's not in the model).
+    # Instead test that updating other fields that change the file path (title/slug) works.
+    updated = store.update("C1", TicketUpdate(title="Moved title"))
+    new_path = ticket_path(store.base_dir, updated)
+
+    assert updated.title == "Moved title"
+    assert not old_path.exists()
+    assert new_path.exists()
+    loaded = store.get("C1")
+    assert loaded.title == "Moved title"

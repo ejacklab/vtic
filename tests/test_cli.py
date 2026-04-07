@@ -541,3 +541,58 @@ def test_serve_rejects_out_of_range_port(tmp_path: Path) -> None:
 
     assert result.exit_code != 0
     assert "Invalid value for '--port'" in result.output
+
+
+def test_search_with_filters_cli(tmp_path: Path) -> None:
+    runner.invoke(
+        app,
+        ["create", "--repo", "ejacklab/open-dsearch", "--category", "security", "--title", "Security ticket"],
+        env=_env(tmp_path),
+    )
+    runner.invoke(
+        app,
+        ["create", "--repo", "ejacklab/open-dsearch", "--title", "Code quality ticket"],
+        env=_env(tmp_path),
+    )
+
+    # Search with category filter
+    result = runner.invoke(
+        app,
+        ["search", "ticket", "--category", "security", "--format", "json"],
+        env=_env(tmp_path),
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["total"] == 1
+    assert payload["results"][0]["id"] == "S1"
+
+    # Search with severity filter
+    result = runner.invoke(
+        app,
+        ["search", "ticket", "--severity", "high", "--format", "json"],
+        env=_env(tmp_path),
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    # Only S1 has critical severity, not high
+    assert payload["total"] == 0
+
+    # Search with repo filter
+    result = runner.invoke(
+        app,
+        ["search", "ticket", "--repo", "ejacklab/open-dsearch", "--format", "json"],
+        env=_env(tmp_path),
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["total"] == 2
+
+    # Search with status filter
+    result = runner.invoke(
+        app,
+        ["search", "ticket", "--status", "open", "--format", "json"],
+        env=_env(tmp_path),
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["total"] == 2

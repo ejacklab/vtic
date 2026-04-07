@@ -376,3 +376,75 @@ def test_builtin_bm25_empty_corpus_scores_empty() -> None:
     scorer = _BuiltinBM25([])
 
     assert scorer.get_scores(["auth"]) == []
+
+
+def test_search_category_filter(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+    filters = SearchFilters(category=[Category.SECURITY])
+
+    response = engine.search("", filters=filters)
+
+    assert response.total == 2
+    assert all(result.category == Category.SECURITY.value for result in response.results)
+    assert [result.id for result in response.results] == ["S1", "S5"]
+
+
+def test_search_owner_filter(store: TicketStore) -> None:
+    # The store fixture tickets don't have owner set via the helper
+    # Create a ticket with owner directly
+    from datetime import UTC, datetime
+    owner_ticket = Ticket(
+        id="C7", title="Owned by alice", repo="owner/repo",
+        category=Category.CODE_QUALITY, severity=Severity.MEDIUM, status=Status.OPEN,
+        tags=[], owner="alice",
+        created_at=datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC),
+        slug="owned-by-alice",
+    )
+    store.create(owner_ticket)
+
+    engine = TicketSearch(store)
+    filters = SearchFilters(owner="alice")
+
+    response = engine.search("", filters=filters)
+
+    assert response.total == 1
+    assert response.results[0].id == "C7"
+
+
+def test_search_tags_filter(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+    filters = SearchFilters(tags=["fastapi"])
+
+    response = engine.search("", filters=filters)
+
+    assert response.total == 1
+    assert response.results[0].id == "S1"
+
+
+def test_search_has_fix_filter(tmp_path: Path) -> None:
+    from vtic.utils import slugify
+    s = TicketStore(tmp_path / "tickets")
+    now = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+    s.create(Ticket(
+        id="C1", title="Has fix", description="desc", fix="Apply patch.",
+        repo="owner/repo", tags=[], slug=slugify("Has fix"),
+        created_at=now, updated_at=now,
+    ))
+    s.create(Ticket(
+        id="C2", title="No fix", description="desc",
+        repo="owner/repo", tags=[], slug=slugify("No fix"),
+        created_at=now, updated_at=now,
+    ))
+
+    engine = TicketSearch(s)
+
+    # Tickets with fix
+    response = engine.search("", filters=SearchFilters(has_fix=True))
+    assert response.total == 1
+    assert response.results[0].id == "C1"
+
+    # Tickets without fix
+    response = engine.search("", filters=SearchFilters(has_fix=False))
+    assert response.total == 1
+    assert response.results[0].id == "C2"

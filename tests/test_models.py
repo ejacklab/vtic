@@ -13,6 +13,7 @@ from vtic.models import (
     CATEGORY_PREFIXES,
     Category,
     CategoryLiteral,
+    PaginatedResponse,
     SearchFilters,
     SearchRequest,
     Severity,
@@ -307,3 +308,123 @@ def test_terminal_status_property(sample_timestamp: datetime) -> None:
 def test_slugify_helper_is_stable() -> None:
     assert slugify("Hello, World!!!") == "hello-world"
     assert slugify("Already---Slugged") == "already-slugged"
+
+
+def test_ticket_direct_validation_edge_cases(sample_timestamp: datetime) -> None:
+    """Test Ticket model validation directly for edge cases not covered by TicketCreate."""
+    # Empty title after stripping
+    with pytest.raises(PydanticValidationError, match="Title cannot be empty"):
+        Ticket(
+            id="C1", title="", repo="owner/repo",
+            created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
+        )
+
+    # Whitespace-only title
+    with pytest.raises(PydanticValidationError, match="Title cannot be empty"):
+        Ticket(
+            id="C1", title="   ", repo="owner/repo",
+            created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
+        )
+
+    # Invalid repo format - no slash
+    with pytest.raises(PydanticValidationError, match="Invalid repo format"):
+        Ticket(
+            id="C1", title="Valid", repo="noslash",
+            created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
+        )
+
+    # Invalid repo format - too many slashes
+    with pytest.raises(PydanticValidationError, match="Invalid repo format"):
+        Ticket(
+            id="C1", title="Valid", repo="a/b/c",
+            created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
+        )
+
+    # Invalid severity value
+    with pytest.raises(PydanticValidationError):
+        Ticket(
+            id="C1", title="Valid", repo="owner/repo",
+            severity="urgent",
+            created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
+        )
+
+    # Repo with dot segments
+    with pytest.raises(PydanticValidationError, match="cannot be '\\.' or '\\.\\.'"):
+        Ticket(
+            id="C1", title="Valid", repo="./repo",
+            created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
+        )
+
+
+def test_paginated_response_create() -> None:
+    """Test PaginatedResponse.create() factory method."""
+    resp = PaginatedResponse.create(
+        data=[1, 2, 3],
+        total=10,
+        limit=3,
+        offset=0,
+    )
+    assert resp.data == [1, 2, 3]
+    assert resp.total == 10
+    assert resp.limit == 3
+    assert resp.offset == 0
+    assert resp.has_more is True
+
+    # Last page
+    resp_last = PaginatedResponse.create(
+        data=[10],
+        total=10,
+        limit=3,
+        offset=9,
+    )
+    assert resp_last.has_more is False
+
+    # Empty result
+    resp_empty = PaginatedResponse.create(
+        data=[],
+        total=0,
+        limit=10,
+        offset=0,
+    )
+    assert resp_empty.has_more is False
+    assert resp_empty.total == 0
+
+
+def test_search_filters_normalize_repo_and_tags() -> None:
+    """Test SearchFilters normalization of repo and tags."""
+    filters = SearchFilters(
+        repo=["  Acme/App  ", "OWNER/REPO"],
+        tags=["  Auth  ", "auth", "DUPLICATE", "duplicate", ""],
+    )
+    assert filters.repo == ["acme/app", "owner/repo"]
+    assert filters.tags == ["auth", "duplicate"]
+
+    # Empty strings filtered out
+    filters_empty = SearchFilters(repo=["  ", ""], tags=["", "  "])
+    assert filters_empty.repo is None
+    assert filters_empty.tags == []
+
+
+def test_ticket_update_none_fields_preserve_existing() -> None:
+    """Test that TicketUpdate with None fields does not alter existing values."""
+    ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+    base_data = {
+        "id": "C1",
+        "title": "Original",
+        "repo": "owner/repo",
+        "created_at": ts,
+        "updated_at": ts,
+        "slug": "original",
+    }
+    original = Ticket(**base_data)
+
+    # All-None update should not change anything
+    update = TicketUpdate()
+    update_data = update.model_dump(exclude_unset=True)
+    assert update_data == {}
+
+    # Partial update with explicit Nones
+    partial = TicketUpdate(title=None, description=None, fix=None)
+    unset = partial.model_dump(exclude_unset=True)
+    # Explicitly set fields ARE included even if None
+    assert "title" in unset

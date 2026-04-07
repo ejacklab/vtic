@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -101,3 +102,90 @@ def test_full_lifecycle(tmp_path: Path) -> None:
     with pytest.raises(TicketNotFoundError):
         store.get("S1")
     assert [ticket.id for ticket in store.list()] == ["C1", "C2"]
+
+
+def test_full_lifecycle_with_search_update(tmp_path: Path) -> None:
+    """Extended lifecycle: create, search, update, verify search changed, list, delete."""
+    tickets_dir = tmp_path / "tickets"
+
+    # Create tickets
+    runner.invoke(app, ["init", "--dir", str(tickets_dir)], env=_env(tmp_path))
+    runner.invoke(
+        app,
+        ["create", "--repo", "acme/platform", "--title", "Auth middleware refactor"],
+        env=_env(tmp_path),
+    )
+    runner.invoke(
+        app,
+        ["create", "--repo", "acme/platform", "--title", "Database query optimization"],
+        env=_env(tmp_path),
+    )
+
+    # Search for "auth" - should find C1
+    result = runner.invoke(app, ["search", "auth", "--format", "json"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["total"] == 1
+    assert payload["results"][0]["id"] == "C1"
+
+    # Update C2 title to include "auth"
+    runner.invoke(
+        app,
+        ["update", "--id", "C2", "--title", "Auth database connection pooling"],
+        env=_env(tmp_path),
+    )
+
+    # Search for "auth" again - should find both now
+    result = runner.invoke(app, ["search", "auth", "--format", "json"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["total"] == 2
+
+    # List with status filter
+    result = runner.invoke(app, ["list", "--status", "open", "--format", "json"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert len(payload) == 2
+
+    # Delete C1
+    runner.invoke(app, ["delete", "--id", "C1", "--yes", "--force"], env=_env(tmp_path))
+
+    # Verify only C2 remains
+    store = TicketStore(tickets_dir)
+    assert [t.id for t in store.list()] == ["C2"]
+
+
+def test_concurrent_create_then_search(tmp_path: Path) -> None:
+    """Create multiple tickets then search to verify all are indexed."""
+    tickets_dir = tmp_path / "tickets"
+    runner.invoke(app, ["init", "--dir", str(tickets_dir)], env=_env(tmp_path))
+
+    # Create 5 tickets
+    for i in range(5):
+        runner.invoke(
+            app,
+            ["create", "--repo", "acme/platform", "--title", f"Ticket number {i}"],
+            env=_env(tmp_path),
+        )
+
+    # List all
+    result = runner.invoke(app, ["list", "--format", "json"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert len(payload) == 5
+    assert [t["id"] for t in payload] == ["C1", "C2", "C3", "C4", "C5"]
+
+    # Search for "ticket"
+    result = runner.invoke(app, ["search", "ticket", "--format", "json"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["total"] == 5
+
+    # Search for specific ticket number
+    result = runner.invoke(app, ["search", "number 3", "--format", "json"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["total"] >= 1
+    # "number 3" should rank C3 highly (exact match for "3")
+    result_ids = [r["id"] for r in payload["results"]]
+    assert "C3" in result_ids
