@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime, timezone
 from enum import StrEnum
 from typing import Generic, Literal, Optional, Self, TypeVar
 
