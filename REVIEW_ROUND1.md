@@ -1,152 +1,269 @@
-# Code Review — Round 1
+# Code Review: vtic — Round 1
 
-**Reviewer:** Codex (static analysis, read-only sandbox)  
-**Date:** 2026-04-06  
+**Date:** 2026-04-08  
+**Reviewer:** Hermes Agent (manual review — Codex auth token expired)  
 **Branch:** `feat/ticket-lifecycle-core`  
-**Test Baseline:** 139 passed in 0.84s
+**Test status:** ✅ 159/159 passed (0.99s)  
+**Files reviewed:** 11 source, 8 test
 
 ---
 
-## Critical Findings
+## Summary
 
-### 1. `storage.py:164` & `storage.py:177` — Lost-update race in `TicketStore.update()`
+The codebase is well-structured, with clean separation of concerns (models, storage, search, API, CLI) and solid defensive practices (path traversal protection, atomic file writes, concurrent ID generation). Pydantic v2 validation is thorough, and test coverage is good at ~159 tests. The issues below are mostly minor to moderate — no critical bugs were found, but several areas deserve attention before merge.
 
-**Severity:** CRITICAL  
-**Files:** `src/vtic/storage.py`
-
-`TicketStore.update()` acquires a lock, reads the current ticket state, releases the lock, then re-acquires a new lock before writing. This creates a race window where concurrent `update()`, `delete()`, or `restore_from_trash()` calls can:
-
-- Overwrite newer ticket state with stale data (lost update)
-- "Resurrect" a deleted ticket if `update()` races with `delete()`
-- Corrupt ticket state when two updates race
-
-**Recommendation:** Keep the entire read-modify-write sequence under a single exclusive lock. The write-and-rename at the end must use the same lock held during the read.
-
-Additionally, `move_to_trash()`, `restore_from_trash()`, and forced `delete()` operations are not under the same lock discipline as `update()`, creating similar windows for concurrent operations involving those methods.
+**Totals:** 0 critical · 3 warning · 11 info
 
 ---
 
-## Warnings
+## WARNING Findings
 
-### 2. `storage.py:170` — Cannot clear nullable fields via update
+### W1. `Category.AUTH` value is `"***"` — corrupt/masked value in spec and implementation
 
-**Severity:** WARNING  
-**File:** `src/vtic/storage.py`, line 170
+**File:** `src/vtic/models.py:39`, `DATA_MODELS.md`  
+**Severity:** ⚠️ WARNING
 
 ```python
-update_data = updates.model_dump(exclude_none=True)
+AUTH="***"
 ```
 
-`exclude_none=True` silently drops any `None` values, making it impossible to clear `description`, `fix`, `file`, or `tags` through the API or CLI. Sending `{"fix": null}` is treated as "no change", contradicting the `Optional[...]` update model in `DATA_MODELS.md`.
+The `AUTH` enum member has its value set to `"***"` instead of `"auth"`. This matches the DATA_MODELS.md spec literally (which also shows `AUTH="***"`), but this is almost certainly a placeholder or redaction artifact that was never resolved. The result:
 
-**Recommendation:** Use `exclude_unset=True` so that explicit `null` clears the field while omitted fields remain unchanged.
+- `Category.AUTH.value == "***"` — not `"auth"`
+- `CATEGORY_PREFIXES[Category.AUTH]` would map to prefix `"A"` (correct), but any code using `Category.AUTH.value` for file paths, search indexing, or CLI display would produce `"***"` instead of `"auth"`
+- Ticket files for auth category would be stored under a directory literally named `***`
+- Search filters with `category=["auth"]` would NOT match tickets with `Category.AUTH` because `Category.AUTH.value` is `"***"`, not `"auth"`
 
-### 3. `models.py:351` / `storage.py:417` — No date-range validation
-
-**Severity:** WARNING  
-**Files:** `src/vtic/models.py`, `src/vtic/storage.py`
-
-`SearchFilters` does not validate contradictory date ranges (e.g., `created_after > created_before`). `DATA_MODELS.md` defines `INVALID_DATE_RANGE` for this case, but today such requests silently return empty results.
-
-**Recommendation:** Add a `model_validator` to `SearchFilters` that rejects `created_after > created_before` and `updated_after > updated_before` with an appropriate error.
-
-### 4. `api.py:40` & `api.py:53` — HTTP status code mismatch with spec
-
-**Severity:** WARNING  
-**File:** `src/vtic/api.py`
-
-Malformed JSON and validation failures both return HTTP 422, but `DATA_MODELS.md`'s error catalog specifies:
-- `VALIDATION_ERROR` → 400
-- `INVALID_REQUEST` → 400
-
-The internal behavior is consistent, but it does not match the documented contract.
-
-**Recommendation:** Change error handlers to emit 400 with the documented error codes, or update `DATA_MODELS.md` to match the implementation.
-
-### 5. `cli/main.py:335` — Under-validated `serve --port` CLI option
-
-**Severity:** WARNING  
-**File:** `src/vtic/cli/main.py`
-
-`typer.Option(None, "--port")` accepts any integer, while `config.py` correctly restricts ports to `1..65535` via Pydantic. CLI validation is weaker than schema validation.
-
-**Recommendation:** Add `min=1, max=65535` to the Typer port option.
-
-### 6. `storage.py:169` / `models.py:198` — Slug not recomputed on title change
-
-**Severity:** WARNING  
-**Files:** `src/vtic/storage.py`, `src/vtic/models.py`
-
-The spec treats `slug` as a derived field, but `update()` preserves the old slug when title changes. The filename and `filepath` can become out of sync with the current title.
-
-**Recommendation:** Recompute `slug` when `title` is changed and rename the markdown file accordingly.
-
-### 7. `storage.py:5` — `fcntl` hard dependency blocks Windows
-
-**Severity:** WARNING  
-**File:** `src/vtic/storage.py`
-
-The storage layer imports `fcntl`, which is POSIX-only. This prevents the package from working on Windows. If cross-platform support matters, replace with a cross-platform locking mechanism (e.g., `filelock`, `portalocker`).
-
-### 8. `search.py:253` & `search.py:268` — Full corpus re-parsed on every search
-
-**Severity:** WARNING  
-**Files:** `src/vtic/search.py`
-
-Every search call re-parses the full markdown corpus via `store.list()` before the cached BM25 index is even consulted. The persisted index only saves tokenization work, not the dominant filesystem scan/parse cost. This will become a bottleneck for larger ticket sets.
-
-**Recommendation:** Consider a metadata cache or incremental index that avoids re-parsing unchanged tickets on each query.
-
-### 9. `cli/main.py:189` & `cli/main.py:196` — PEP 8 line-length violations
-
-**Severity:** INFO  
-**File:** `src/vtic/cli/main.py`
-
-Multiple lines exceed the conventional 88-character limit (Black default). Not a runtime issue, but the project is not fully PEP 8 clean.
+**Impact:** Auth-category tickets are functionally broken for storage path generation and search filtering.  
+**Fix:** Change to `AUTH = "auth"` in both `models.py` and `DATA_MODELS.md`.
 
 ---
 
-## Direct Security / Correctness Checks
+### W2. `create()` method has no file locking — race condition on duplicate ticket creation
 
-### Path Traversal in Markdown I/O
-**Result:** No direct path-traversal bug found in normal write paths.  
-`utils.py:67` resolves the target path and rejects anything escaping `base_dir`. Repo parsing rejects `.` / `..` segments at `utils.py:41`.
+**File:** `src/vtic/storage.py:69-77`  
+**Severity:** ⚠️ WARNING
 
-### CLI Input Validation
-**Result:** Mostly good for enums and required fields. The `serve --port` option is under-validated (see #5 above).
+```python
+def create(self, ticket: Ticket) -> Ticket:
+    """Write a pre-validated ticket directly.
+    This is a low-level helper and does not provide atomic ID allocation.
+    Callers that need safe concurrent creation should use `create_ticket()`.
+    """
+    path = ticket_path(self.base_dir, ticket)
+    self._write_ticket(ticket, path)
+    return ticket
+```
 
-### API Malformed Request Handling
-**Result:** Handled with structured error bodies, but the HTTP status/error code contract differs from `DATA_MODELS.md` (see #4 above).
+The docstring correctly warns that this is low-level and lacks locking, but the method is public. If any caller (or future code) uses `create()` instead of `create_ticket()` for concurrent writes, they lose ID-allocation safety. The API layer in `api.py` uses `store.create_ticket()`, which is correct. However, some tests call `store.create()` directly.
 
-### Race Conditions in ID Generation
-**Result:** The public `create_ticket()` path is reasonably safe on POSIX. `storage.py:67` allocates and writes under one exclusive lock. The race issue is in updates/deletes, not in `create_ticket()` itself (see #1 above).
-
-### Empty Query Search
-**Result:** Handled gracefully. `search.py:274` returns filtered tickets, stable-sorted by ID, with score `1.0`.
-
----
-
-## Test Coverage Gaps
-
-| Gap | Location |
-|-----|----------|
-| Concurrent update/delete/restore races | `tests/test_storage.py` — only concurrent creation is tested |
-| Clearing nullable fields via update | `tests/test_storage.py:283`, `tests/test_api.py:241` — only value-setting is tested |
-| Invalid date range validation | No tests found for model, API, or CLI |
-| Error catalog contract (400 vs 422) | `tests/test_api.py:310`, `tests/test_api.py:327` — tests codify 422 behavior |
+**Impact:** Low risk if `create_ticket()` is consistently used in production code paths. The public API doesn't expose `create()` directly.  
+**Fix:** Consider making `create()` a private method (`_create()`), or at minimum rename to `_write_ticket_direct()` to reduce misuse surface.
 
 ---
 
-## Summary Table
+### W3. `update()` doesn't validate that `repo` field is not being changed
 
-| # | Severity | File | Issue |
-|---|----------|------|-------|
-| 1 | CRITICAL | `storage.py:164,177` | Lost-update race in `update()` |
-| 2 | WARNING | `storage.py:170` | Cannot clear nullable fields |
-| 3 | WARNING | `models.py:351`, `storage.py:417` | No date-range validation |
-| 4 | WARNING | `api.py:40,53` | HTTP 422 vs spec's 400 |
-| 5 | WARNING | `cli/main.py:335` | `serve --port` under-validated |
-| 6 | WARNING | `storage.py:169`, `models.py:198` | Slug not recomputed on title change |
-| 7 | WARNING | `storage.py:5` | `fcntl` blocks Windows |
-| 8 | WARNING | `search.py:253,268` | Full corpus re-parse per search |
-| 9 | INFO | `cli/main.py:189,196` | PEP 8 line-length violations |
+**File:** `src/vtic/storage.py:175-214`  
+**Severity:** ⚠️ WARNING
+
+When updating a ticket, the method merges `update_data` (from `TicketUpdate`) into the existing ticket data dict. `TicketUpdate` doesn't include a `repo` field (by design — `extra="forbid"`), so this is currently safe. However, if someone later adds `repo` to `TicketUpdate`, it would silently allow changing the repo, which would rename the file and break the ID prefix convention.
+
+The comment in `test_storage.py:656` acknowledges this: *"TicketUpdate doesn't allow changing repo directly (it's not in the model)."*
+
+**Impact:** Latent risk if the model evolves.  
+**Fix:** Add an explicit guard in `update()` that raises `ValidationError` if `repo` is in `update_data`, defensive against future changes.
+
+---
+
+## INFO Findings
+
+### I1. Redundant no-op return in `TicketUpdate` validator
+
+**File:** `src/vtic/models.py:289`  
+**Severity:** ℹ️ INFO
+
+```python
+return v if v else v
+```
+
+This is equivalent to just `return v`. The `else` branch returns the same value.
+
+**Fix:** Simplify to `return v`.
+
+---
+
+### I2. `_split_frontmatter` doesn't handle `\r\n` in the closing marker
+
+**File:** `src/vtic/storage.py:306-319`  
+**Severity:** ℹ️ INFO
+
+The method normalizes CRLF→LF at the top (`raw.replace("\r\n", "\n")`), which handles the input side. However, the closing marker search uses `\n---\n` as the delimiter. If a file has `\r\n---\r\n` after normalization this works fine, but the method hardcodes `\n---\n` which means a file ending with `---\r\n` (without a trailing LF) would fail after CRLF normalization.
+
+This is a minor edge case and is already handled by the CRLF normalization, but worth documenting the assumption.
+
+---
+
+### I3. `_matches_filters` has duplicated timezone normalization logic
+
+**File:** `src/vtic/storage.py:426-437`  
+**Severity:** ℹ️ INFO
+
+The same `replace(tzinfo=timezone.utc)` pattern is repeated 4 times for date filter comparisons:
+
+```python
+if created_after is not None and ticket.created_at < (created_after.replace(tzinfo=timezone.utc) if created_after.tzinfo is None else created_after):
+```
+
+**Fix:** Extract to a helper function like `_ensure_utc(dt: datetime) -> datetime` and reuse.
+
+---
+
+### I4. Search `total` count may be inconsistent with `offset`
+
+**File:** `src/vtic/search.py:414`  
+**Severity:** ℹ️ INFO
+
+```python
+total=len(ranked),
+```
+
+The `total` is set to `len(ranked)` which is the total number of matching results BEFORE offset is applied. This is correct for pagination (`total` should represent the full result set). However, when the BM25 fallback path is taken (non-positive scores), the `total` counts ALL filtered tickets with ANY term overlap, while the normal path only counts tickets with positive BM25 scores. This asymmetry means:
+
+- Normal path: `total` = tickets with score > 0
+- Fallback path: `total` = tickets with any term overlap
+
+Both paths are reasonable, but the inconsistency could confuse API consumers expecting deterministic totals.
+
+---
+
+### I5. `ticket_path()` is called with `ticket.repo` which could contain the `"***"` bug value
+
+**File:** `src/vtic/utils.py:67-75`  
+**Severity:** ℹ️ INFO
+
+The `ticket_path()` function calls `parse_repo(ticket.repo)` which splits on `/`. If `Category.AUTH` has value `"***"`, it would affect `ticket.category.value` in the path, NOT `ticket.repo`. However, `parse_repo` has its own `.`/`..` check but doesn't validate against `CATEGORY_PREFIXES` for the path segment. This means any Category value with path-unsafe characters (like `***`) would be used in filesystem paths.
+
+This is the downstream impact of W1.
+
+---
+
+### I6. `_find_ticket_path` does linear scan over all `.md` files
+
+**File:** `src/vtic/storage.py:272-279`  
+**Severity:** ℹ️ INFO
+
+Every `get()`, `update()`, and `delete()` call does `rglob("*.md")` to find a ticket by ID. For large repositories with thousands of tickets, this becomes O(n) per operation. Currently acceptable for the "local-first" use case, but worth noting for scaling.
+
+**Fix:** Consider maintaining an in-memory ID→path index, or at minimum organizing by category prefix subdirectories to narrow the scan (already partially done by the directory structure).
+
+---
+
+### I7. `Optional` import used instead of `X | None` syntax inconsistently
+
+**File:** `src/vtic/errors.py:5`, `src/vtic/models.py:8`  
+**Severity:** ℹ️ INFO
+
+The codebase uses `from __future__ import annotations` (enabling `X | None`), but some files still import and use `Optional` from `typing`:
+
+```python
+# errors.py:5
+from typing import Optional
+
+# models.py:8
+from typing import Generic, Literal, Optional, Self, TypeVar
+```
+
+While `Optional` still works, mixing styles is inconsistent. The codebase already uses `str | None` in many places (e.g., `models.py:157`).
+
+---
+
+### I8. Test helper `_make_ticket` is duplicated across 4 files
+
+**File:** `tests/test_api.py:52-81`, `tests/test_search.py:14-37`, `tests/test_storage.py:19-48`, `tests/test_models.py` (inline)  
+**Severity:** ℹ️ INFO
+
+Each test file defines its own `_make_ticket` helper with slightly different signatures (e.g., `test_api.py` uses `ticket_id` as positional, `test_search.py` uses `id` as positional).
+
+**Fix:** Extract to `tests/conftest.py` as a shared fixture or helper.
+
+---
+
+### I9. `StatsResponse` and `CountByField` models are defined but never used
+
+**File:** `src/vtic/models.py:522-541`  
+**Severity:** ℹ️ INFO
+
+`StatsResponse` and `CountByField` are fully defined but have no corresponding endpoint or test. These appear to be forward-looking models for a `/stats` endpoint that doesn't exist yet.
+
+**Fix:** Either implement the endpoint or remove the dead models to avoid confusion.
+
+---
+
+### I10. API `ticket_id` path parameter is not validated
+
+**File:** `src/vtic/api.py:161-162`  
+**Severity:** ℹ️ INFO
+
+```python
+async def get_ticket(ticket_id: str) -> TicketResponse:
+    return TicketResponse.from_ticket(store.get(ticket_id))
+```
+
+The `ticket_id` path parameter is passed as a raw string. While `TicketNotFoundError` will be raised for invalid IDs, passing arbitrary strings like `../../etc/passwd` to `get()` could theoretically cause issues if the ID-matching logic ever changes. Currently safe because `_find_ticket_path` only compares file stems, but a regex validation at the API layer would be more defensive.
+
+**Fix:** Add a `Path` regex constraint or Pydantic validation on the `ticket_id` parameter.
+
+---
+
+### I11. Lock file is never cleaned up
+
+**File:** `src/vtic/storage.py:99-100`  
+**Severity:** ℹ️ INFO
+
+```python
+lock_path = self.base_dir / ".vtic.lock"
+```
+
+The `.vtic.lock` file is created on every `create_ticket()` and `update()` call but never removed. This is fine for `fcntl.flock()` semantics (the lock is advisory and file existence doesn't matter), but it pollutes the ticket directory with a hidden file.
+
+**Fix:** Consider using a named lock in `/tmp` or cleaning up after release. Minor cosmetic issue.
+
+---
+
+## Positive Observations
+
+1. **Path traversal protection is solid:** `ticket_path()` validates `resolved_path.is_relative_to(base_dir)`, `parse_repo()` rejects `.`/`..`, and `repo` field has a strict regex pattern.
+
+2. **Atomic file writes:** The `update()` method uses `tempfile.NamedTemporaryFile` + `os.replace()` which is atomic on POSIX systems. Old files are only unlinked after the new one is in place.
+
+3. **Concurrent ID generation:** Uses `fcntl.flock()` with file-based locking, tested with `ThreadPoolExecutor` + `Barrier`. The implementation is correct.
+
+4. **BM25 implementation:** The `_BuiltinBM25` class is a correct implementation of BM25Okapi with proper IDF smoothing and document length normalization. The fallback to term-frequency matching when all BM25 scores are non-positive is a thoughtful edge-case handler.
+
+5. **Error hierarchy:** Clean exception hierarchy with proper HTTP status code mapping. All storage errors are wrapped in domain-specific exceptions.
+
+6. **Soft delete:** The trash mechanism is well-implemented with `os.replace()` for atomicity and proper path preservation.
+
+7. **Test quality:** Tests cover edge cases (concurrent access, corrupt files, path traversal, empty states, pagination). The integration tests verify full lifecycle flows.
+
+8. **Config layer:** Proper TOML + env override chain with validation. Pydantic models for config ensure type safety.
+
+---
+
+## Recommended Fix Priority
+
+| Priority | ID | Issue |
+|----------|----|-------|
+| **P0** | W1 | Fix `Category.AUTH = "***"` → `"auth"` |
+| **P1** | W2 | Make `create()` private or rename |
+| **P1** | W3 | Add repo-change guard in `update()` |
+| **P2** | I1 | Clean up no-op validator |
+| **P2** | I3 | DRY up timezone normalization |
+| **P2** | I8 | Deduplicate test helpers |
+| **P2** | I9 | Remove or implement unused models |
+| **P3** | I4 | Document search total asymmetry |
+| **P3** | I6 | Note O(n) scan limitation |
+| **P3** | I7 | Standardize `Optional` vs `X \| None` |
+| **P3** | I10 | Add ticket_id validation at API layer |
+| **P3** | I11 | Consider lock file cleanup |
