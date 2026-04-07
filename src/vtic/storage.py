@@ -5,7 +5,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -423,13 +423,17 @@ class TicketStore:
             return False
         if filters.status and ticket.status not in filters.status:
             return False
-        if filters.created_after and ticket.created_at < filters.created_after:
+        created_after = filters.created_after
+        if created_after is not None and ticket.created_at < (created_after.replace(tzinfo=timezone.utc) if created_after.tzinfo is None else created_after):
             return False
-        if filters.created_before and ticket.created_at > filters.created_before:
+        created_before = filters.created_before
+        if created_before is not None and ticket.created_at > (created_before.replace(tzinfo=timezone.utc) if created_before.tzinfo is None else created_before):
             return False
-        if filters.updated_after and ticket.updated_at < filters.updated_after:
+        updated_after = filters.updated_after
+        if updated_after is not None and ticket.updated_at < (updated_after.replace(tzinfo=timezone.utc) if updated_after.tzinfo is None else updated_after):
             return False
-        if filters.updated_before and ticket.updated_at > filters.updated_before:
+        updated_before = filters.updated_before
+        if updated_before is not None and ticket.updated_at > (updated_before.replace(tzinfo=timezone.utc) if updated_before.tzinfo is None else updated_before):
             return False
         if filters.tags and not all(tag in ticket.tags for tag in filters.tags):
             return False

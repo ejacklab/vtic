@@ -390,17 +390,19 @@ class SearchFilters(VticBaseModel):
 
     @model_validator(mode="after")
     def validate_date_ranges(self) -> Self:
-        if (
-            self.created_after is not None
-            and self.created_before is not None
-            and self.created_after > self.created_before
-        ):
+        def _normalize(dt: datetime | None) -> datetime | None:
+            if dt is None or dt.tzinfo is not None:
+                return dt
+            return dt.replace(tzinfo=timezone.utc)
+
+        created_after = _normalize(self.created_after)
+        created_before = _normalize(self.created_before)
+        updated_after = _normalize(self.updated_after)
+        updated_before = _normalize(self.updated_before)
+
+        if created_after is not None and created_before is not None and created_after > created_before:
             raise ValueError("created_after cannot be later than created_before")
-        if (
-            self.updated_after is not None
-            and self.updated_before is not None
-            and self.updated_after > self.updated_before
-        ):
+        if updated_after is not None and updated_before is not None and updated_after > updated_before:
             raise ValueError("updated_after cannot be later than updated_before")
         return self
 
