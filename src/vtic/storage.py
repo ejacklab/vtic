@@ -434,13 +434,6 @@ class TicketStore:
         return dt
 
     @staticmethod
-    def _ensure_utc(dt: datetime) -> datetime:
-        """Ensure a datetime is timezone-aware (assume UTC if naive)."""
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt
-
-    @staticmethod
     def _matches_filters(ticket: Ticket, filters: SearchFilters | None) -> bool:
         if filters is None:
             return True

@@ -46,18 +46,6 @@ def _validate_ticket_id(ticket_id: str) -> str:
     return normalized
 
 
-_TICKET_ID_PATTERN = re.compile(r"^[A-Z]\d+$")
-
-
-def _validate_ticket_id(ticket_id: str) -> str:
-    """Validate and normalize a ticket ID path parameter."""
-    normalized = ticket_id.strip().upper()
-    if not _TICKET_ID_PATTERN.match(normalized):
-        from vtic.errors import ValidationError as VticValidationError
-        raise VticValidationError(f"Invalid ticket ID format: {ticket_id}")
-    return normalized
-
-
 def _error_json(error: ErrorResponse) -> JSONResponse:
     return JSONResponse(status_code=error.status_code, content=error.model_dump())
 
