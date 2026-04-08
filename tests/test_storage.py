@@ -70,7 +70,7 @@ def test_create_writes_markdown_file(tmp_path: Path) -> None:
         tags=["refactor", "helpers"],
     )
 
-    store.create(ticket)
+    store._create(ticket)
 
     path = ticket_path(store.base_dir, ticket)
     content = path.read_text(encoding="utf-8")
@@ -88,7 +88,7 @@ def test_create_writes_markdown_file(tmp_path: Path) -> None:
 def test_get_returns_ticket(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     created = _make_ticket("S1", title="CORS wildcard", category=Category.SECURITY, repo="owner/repo")
-    store.create(created)
+    store._create(created)
 
     loaded = store.get("S1")
 
@@ -106,8 +106,8 @@ def test_list_filters(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     code_ticket = _make_ticket("C1", title="Code cleanup", category=Category.CODE_QUALITY)
     security_ticket = _make_ticket("S1", title="Fix TLS", category=Category.SECURITY)
-    store.create(code_ticket)
-    store.create(security_ticket)
+    store._create(code_ticket)
+    store._create(security_ticket)
 
     results = store.list(SearchFilters(category=[Category.SECURITY]))
 
@@ -117,7 +117,7 @@ def test_list_filters(tmp_path: Path) -> None:
 def test_update_modifies_file(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Needs fix", status=Status.OPEN)
-    store.create(ticket)
+    store._create(ticket)
 
     updated = store.update("C1", TicketUpdate(status=Status.FIXED))
     content = ticket_path(store.base_dir, updated).read_text(encoding="utf-8")
@@ -130,7 +130,7 @@ def test_delete_removes_file(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Delete me")
     path = ticket_path(store.base_dir, ticket)
-    store.create(ticket)
+    store._create(ticket)
 
     store.delete("C1", force=True)
 
@@ -141,10 +141,10 @@ def test_delete_removes_file(tmp_path: Path) -> None:
 
 def test_concurrent_id_generation(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(_make_ticket("C1", title="Existing cleanup"))
+    store._create(_make_ticket("C1", title="Existing cleanup"))
 
     first = store._next_id(Category.CODE_QUALITY)
-    store.create(_make_ticket(first, title="Queued cleanup"))
+    store._create(_make_ticket(first, title="Queued cleanup"))
     second = store._next_id(Category.CODE_QUALITY)
 
     assert first == "C2"
@@ -219,7 +219,7 @@ def test_create_uses_expected_nested_path(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("S1", title="Nested path", repo="acme/platform", category=Category.SECURITY)
 
-    store.create(ticket)
+    store._create(ticket)
 
     assert ticket_path(store.base_dir, ticket) == (
         tmp_path / "tickets" / "acme" / "platform" / "security" / "S1-nested-path.md"
@@ -252,7 +252,7 @@ def test_create_without_fix_omits_fix_section(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Plain body", description="Only description text.")
 
-    store.create(ticket)
+    store._create(ticket)
 
     content = ticket_path(store.base_dir, ticket).read_text(encoding="utf-8")
     assert "Only description text." in content
@@ -262,7 +262,7 @@ def test_create_without_fix_omits_fix_section(tmp_path: Path) -> None:
 def test_get_is_case_insensitive_for_id_lookup(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Lookup")
-    store.create(ticket)
+    store._create(ticket)
 
     loaded = store.get("c1")
 
@@ -271,9 +271,9 @@ def test_get_is_case_insensitive_for_id_lookup(tmp_path: Path) -> None:
 
 def test_list_returns_sorted_by_ticket_id(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(_make_ticket("S2", title="Second security", category=Category.SECURITY))
-    store.create(_make_ticket("C3", title="Third code"))
-    store.create(_make_ticket("C1", title="First code"))
+    store._create(_make_ticket("S2", title="Second security", category=Category.SECURITY))
+    store._create(_make_ticket("C3", title="Third code"))
+    store._create(_make_ticket("C1", title="First code"))
 
     results = store.list()
 
@@ -283,7 +283,7 @@ def test_list_returns_sorted_by_ticket_id(tmp_path: Path) -> None:
 def test_update_can_change_description_and_fix(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Needs more detail", description="Old", fix=None)
-    store.create(ticket)
+    store._create(ticket)
 
     updated = store.update(
         "C1",
@@ -307,7 +307,7 @@ def test_update_can_clear_nullable_fields(tmp_path: Path) -> None:
         owner="smoke01",
         file="src/app.py:1-2",
     )
-    store.create(ticket)
+    store._create(ticket)
 
     updated = store.update(
         "C1",
@@ -331,7 +331,7 @@ def test_description_preserves_literal_fix_heading(tmp_path: Path) -> None:
         description="Keep this heading:\n## Fix\ninside the description.",
         fix="Actual fix body.",
     )
-    store.create(ticket)
+    store._create(ticket)
 
     loaded = store.get("C1")
 
@@ -343,7 +343,7 @@ def test_update_can_change_category_and_move_file(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Reclassify ticket", category=Category.CODE_QUALITY)
     old_path = ticket_path(store.base_dir, ticket)
-    store.create(ticket)
+    store._create(ticket)
 
     updated = store.update("C1", TicketUpdate(category=Category.SECURITY))
     new_path = ticket_path(store.base_dir, updated)
@@ -357,7 +357,7 @@ def test_update_title_recomputes_slug_and_renames_file(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Original title")
     old_path = ticket_path(store.base_dir, ticket)
-    store.create(ticket)
+    store._create(ticket)
 
     updated = store.update("C1", TicketUpdate(title="Updated auth title"))
     new_path = ticket_path(store.base_dir, updated)
@@ -372,7 +372,7 @@ def test_update_is_atomic(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Original title", category=Category.CODE_QUALITY)
     old_path = ticket_path(store.base_dir, ticket)
-    store.create(ticket)
+    store._create(ticket)
 
     updated = store.update(
         "C1",
@@ -406,10 +406,10 @@ def test_delete_not_found_raises(tmp_path: Path) -> None:
 def test_create_duplicate_id_raises(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Duplicate")
-    store.create(ticket)
+    store._create(ticket)
 
     with pytest.raises(TicketAlreadyExistsError, match="Ticket C1 already exists"):
-        store.create(ticket)
+        store._create(ticket)
 
 
 def test_list_filters_by_repo_status_and_tags(tmp_path: Path) -> None:
@@ -421,10 +421,10 @@ def test_list_filters_by_repo_status_and_tags(tmp_path: Path) -> None:
         status=Status.BLOCKED,
         tags=["auth", "api"],
     )
-    store.create(matching)
-    store.create(_make_ticket("C2", title="Wrong repo", repo="other/app", status=Status.BLOCKED, tags=["auth", "api"]))
-    store.create(_make_ticket("C3", title="Wrong status", repo="acme/app", status=Status.OPEN, tags=["auth", "api"]))
-    store.create(_make_ticket("C4", title="Missing tag", repo="acme/app", status=Status.BLOCKED, tags=["auth"]))
+    store._create(matching)
+    store._create(_make_ticket("C2", title="Wrong repo", repo="other/app", status=Status.BLOCKED, tags=["auth", "api"]))
+    store._create(_make_ticket("C3", title="Wrong status", repo="acme/app", status=Status.OPEN, tags=["auth", "api"]))
+    store._create(_make_ticket("C4", title="Missing tag", repo="acme/app", status=Status.BLOCKED, tags=["auth"]))
 
     results = store.list(
         SearchFilters(
@@ -439,8 +439,8 @@ def test_list_filters_by_repo_status_and_tags(tmp_path: Path) -> None:
 
 def test_list_filters_repo_wildcards(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(_make_ticket("C1", title="Match wildcard", repo="ejacklab/core"))
-    store.create(_make_ticket("C2", title="No match", repo="other/core"))
+    store._create(_make_ticket("C1", title="Match wildcard", repo="ejacklab/core"))
+    store._create(_make_ticket("C2", title="No match", repo="other/core"))
 
     results = store.list(SearchFilters(repo=["ejacklab/*"]))
 
@@ -449,9 +449,9 @@ def test_list_filters_repo_wildcards(tmp_path: Path) -> None:
 
 def test_list_filters_by_has_fix_and_owner(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(_make_ticket("C1", title="Owned fix", owner="smoke01", description="Has a fix", fix="Do it"))
-    store.create(_make_ticket("C2", title="Owned no fix", owner="smoke01", description="No fix", fix=None))
-    store.create(_make_ticket("C3", title="Other owner", owner="alex", description="Other owner", fix="Do it"))
+    store._create(_make_ticket("C1", title="Owned fix", owner="smoke01", description="Has a fix", fix="Do it"))
+    store._create(_make_ticket("C2", title="Owned no fix", owner="smoke01", description="No fix", fix=None))
+    store._create(_make_ticket("C3", title="Other owner", owner="alex", description="Other owner", fix="Do it"))
 
     results = store.list(SearchFilters(has_fix=True, owner="smoke01"))
 
@@ -460,7 +460,7 @@ def test_list_filters_by_has_fix_and_owner(tmp_path: Path) -> None:
 
 def test_list_skips_corrupt_files_and_collects_errors(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(_make_ticket("C1", title="Healthy ticket", repo="acme/app"))
+    store._create(_make_ticket("C1", title="Healthy ticket", repo="acme/app"))
     broken_path = (
         store.base_dir / "acme" / "app" / "code_quality" / "C2-broken-ticket.md"
     )
@@ -478,7 +478,7 @@ def test_soft_delete_moves_file_to_trash(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Trash me", repo="acme/app")
     active_path = ticket_path(store.base_dir, ticket)
-    store.create(ticket)
+    store._create(ticket)
 
     trash_path = store.move_to_trash("C1")
 
@@ -490,7 +490,7 @@ def test_soft_delete_moves_file_to_trash(tmp_path: Path) -> None:
 def test_soft_delete_creates_trash_directory(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Create trash dir")
-    store.create(ticket)
+    store._create(ticket)
 
     store.delete("C1")
 
@@ -500,7 +500,7 @@ def test_soft_delete_creates_trash_directory(tmp_path: Path) -> None:
 def test_force_delete_permanently_removes(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Hard delete")
-    store.create(ticket)
+    store._create(ticket)
 
     store.delete("C1", force=True)
 
@@ -512,7 +512,7 @@ def test_restore_from_trash(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("S1", title="Restore me", category=Category.SECURITY, repo="acme/app")
     original_path = ticket_path(store.base_dir, ticket)
-    store.create(ticket)
+    store._create(ticket)
     store.delete("S1")
 
     restored = store.restore_from_trash("S1")
@@ -526,8 +526,8 @@ def test_list_excludes_trash_directory(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     active = _make_ticket("C1", title="Active ticket")
     trashed = _make_ticket("C2", title="Trashed ticket")
-    store.create(active)
-    store.create(trashed)
+    store._create(active)
+    store._create(trashed)
     store.delete("C2")
 
     results = store.list()
@@ -538,7 +538,7 @@ def test_list_excludes_trash_directory(tmp_path: Path) -> None:
 def test_find_ticket_excludes_trash_directory(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Hidden in trash")
-    store.create(ticket)
+    store._create(ticket)
     store.delete("C1")
 
     with pytest.raises(TicketNotFoundError):
@@ -554,7 +554,7 @@ def test_soft_delete_preserves_file_content(tmp_path: Path) -> None:
         fix="Original fix.",
         tags=["alpha", "beta"],
     )
-    store.create(ticket)
+    store._create(ticket)
     original_content = ticket_path(store.base_dir, ticket).read_text(encoding="utf-8")
 
     trash_path = store.move_to_trash("C1")
@@ -564,9 +564,9 @@ def test_soft_delete_preserves_file_content(tmp_path: Path) -> None:
 
 def test_list_supports_sort_by_severity(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(_make_ticket("C1", title="Medium priority", severity=Severity.MEDIUM))
-    store.create(_make_ticket("C2", title="Critical priority", severity=Severity.CRITICAL))
-    store.create(_make_ticket("C3", title="Low priority", severity=Severity.LOW))
+    store._create(_make_ticket("C1", title="Medium priority", severity=Severity.MEDIUM))
+    store._create(_make_ticket("C2", title="Critical priority", severity=Severity.CRITICAL))
+    store._create(_make_ticket("C3", title="Low priority", severity=Severity.LOW))
 
     results = store.list(sort_by="severity")
 
@@ -581,8 +581,8 @@ def test_list_supports_descending_created_at_sort(tmp_path: Path) -> None:
     newer_timestamp = datetime(2026, 3, 16, 11, 0, 0, tzinfo=UTC)
     older = older.model_copy(update={"created_at": older_timestamp, "updated_at": older_timestamp})
     newer = newer.model_copy(update={"created_at": newer_timestamp, "updated_at": newer_timestamp})
-    store.create(older)
-    store.create(newer)
+    store._create(older)
+    store._create(newer)
 
     results = store.list(sort_by="-created_at")
 
@@ -606,9 +606,9 @@ def test_list_with_date_filters(tmp_path: Path) -> None:
         "created_at": datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC),
         "updated_at": datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC),
     })
-    store.create(older)
-    store.create(between)
-    store.create(newer)
+    store._create(older)
+    store._create(between)
+    store._create(newer)
 
     # created_after
     results = store.list(SearchFilters(created_after=datetime(2026, 2, 1, 0, 0, 0, tzinfo=UTC)))
@@ -632,10 +632,10 @@ def test_list_with_date_filters(tmp_path: Path) -> None:
 
 def test_list_filters_by_severity(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(_make_ticket("C1", title="Critical", severity=Severity.CRITICAL))
-    store.create(_make_ticket("C2", title="High", severity=Severity.HIGH))
-    store.create(_make_ticket("C3", title="Medium", severity=Severity.MEDIUM))
-    store.create(_make_ticket("C4", title="Low", severity=Severity.LOW))
+    store._create(_make_ticket("C1", title="Critical", severity=Severity.CRITICAL))
+    store._create(_make_ticket("C2", title="High", severity=Severity.HIGH))
+    store._create(_make_ticket("C3", title="Medium", severity=Severity.MEDIUM))
+    store._create(_make_ticket("C4", title="Low", severity=Severity.LOW))
 
     # Single severity
     results = store.list(SearchFilters(severity=[Severity.CRITICAL]))
@@ -651,7 +651,7 @@ def test_update_changing_repo_moves_file(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     ticket = _make_ticket("C1", title="Move me", repo="old/repo")
     old_path = ticket_path(store.base_dir, ticket)
-    store.create(ticket)
+    store._create(ticket)
 
     # TicketUpdate doesn't allow changing repo directly (it's not in the model).
     # Instead test that updating other fields that change the file path (title/slug) works.

@@ -99,7 +99,7 @@ def store(tmp_path: Path) -> TicketStore:
         ),
     ]
     for ticket in tickets:
-        ticket_store.create(ticket)
+        ticket_store._create(ticket)
     return ticket_store
 
 
@@ -208,7 +208,7 @@ def test_search_ranking(tmp_path: Path) -> None:
         ),
     ]
     for ticket in tickets:
-        store.create(ticket)
+        store._create(ticket)
 
     engine = TicketSearch(store)
     response = engine.search("auth", topk=10)
@@ -275,7 +275,7 @@ def test_special_characters_in_query(store: TicketStore) -> None:
 
 def test_search_with_tokenless_corpus_returns_empty(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(
+    store._create(
         _make_ticket(
             "C1",
             "x",
@@ -323,7 +323,7 @@ def test_search_falls_back_when_bm25_scores_are_non_positive(
 
 def test_search_rebuilds_index_when_ticket_content_changes(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
-    store.create(
+    store._create(
         _make_ticket(
             "C1",
             "Old title",
@@ -401,7 +401,7 @@ def test_search_owner_filter(store: TicketStore) -> None:
         updated_at=datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC),
         slug="owned-by-alice",
     )
-    store.create(owner_ticket)
+    store._create(owner_ticket)
 
     engine = TicketSearch(store)
     filters = SearchFilters(owner="alice")
@@ -426,12 +426,12 @@ def test_search_has_fix_filter(tmp_path: Path) -> None:
     from vtic.utils import slugify
     s = TicketStore(tmp_path / "tickets")
     now = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-    s.create(Ticket(
+    s._create(Ticket(
         id="C1", title="Has fix", description="desc", fix="Apply patch.",
         repo="owner/repo", tags=[], slug=slugify("Has fix"),
         created_at=now, updated_at=now,
     ))
-    s.create(Ticket(
+    s._create(Ticket(
         id="C2", title="No fix", description="desc",
         repo="owner/repo", tags=[], slug=slugify("No fix"),
         created_at=now, updated_at=now,

@@ -1,11 +1,11 @@
-"""Core data models for vtic."""
+"""Coauthdata models for vtic."""
 
 from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timezone
 from enum import StrEnum
-from typing import Generic, Literal, Optional, Self, TypeVar
+from typing import Generic, Literal, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -101,8 +101,8 @@ class Ticket(VticBaseModel):
         description="Unique ticket ID (e.g., C1, S2, A3)",
     )
     title: str = Field(..., min_length=1, max_length=200, description="Ticket title")
-    description: Optional[str] = Field(default=None, max_length=50000)
-    fix: Optional[str] = Field(default=None, max_length=20000)
+    description: str | None = Field(default=None, max_length=50000)
+    fix: str | None = Field(default=None, max_length=20000)
     repo: str = Field(
         ...,
         min_length=3,
@@ -110,11 +110,11 @@ class Ticket(VticBaseModel):
         pattern=r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$",
         description="Repository in 'owner/repo' format",
     )
-    owner: Optional[str] = Field(default=None, max_length=100)
+    owner: str | None = Field(default=None, max_length=100)
     category: Category = Field(default=Category.CODE_QUALITY)
     severity: Severity = Field(default=Severity.MEDIUM)
     status: Status = Field(default=Status.OPEN)
-    file: Optional[str] = Field(
+    file: str | None = Field(
         default=None,
         max_length=500,
         pattern=r"^[^:]+(:\d+(-\d+)?)?$",
@@ -216,13 +216,13 @@ class TicketCreate(VticBaseModel):
         pattern=r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$",
         description="Repository in 'owner/repo' format",
     )
-    description: Optional[str] = Field(default=None, max_length=50000)
-    fix: Optional[str] = Field(default=None, max_length=20000)
-    owner: Optional[str] = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=50000)
+    fix: str | None = Field(default=None, max_length=20000)
+    owner: str | None = Field(default=None, max_length=100)
     category: Category = Field(default=Category.CODE_QUALITY)
     severity: Severity = Field(default=Severity.MEDIUM)
     status: Status = Field(default=Status.OPEN)
-    file: Optional[str] = Field(default=None, max_length=500)
+    file: str | None = Field(default=None, max_length=500)
     tags: list[str] = Field(default_factory=list, description="Searchable tags (max 50 items)")
 
     model_config = ConfigDict(
@@ -262,15 +262,15 @@ class TicketCreate(VticBaseModel):
 class TicketUpdate(VticBaseModel):
     """Request body for updating an existing ticket."""
 
-    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    description: Optional[str] = Field(default=None, max_length=50000)
-    fix: Optional[str] = Field(default=None, max_length=20000)
-    owner: Optional[str] = Field(default=None, max_length=100)
-    category: Optional[Category] = Field(default=None)
-    severity: Optional[Severity] = Field(default=None)
-    status: Optional[Status] = Field(default=None)
-    file: Optional[str] = Field(default=None, max_length=500)
-    tags: Optional[list[str]] = Field(default=None, description="Searchable tags (max 50 items)")
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=50000)
+    fix: str | None = Field(default=None, max_length=20000)
+    owner: str | None = Field(default=None, max_length=100)
+    category: Category | None = Field(default=None)
+    severity: Severity | None = Field(default=None)
+    status: Status | None = Field(default=None)
+    file: str | None = Field(default=None, max_length=500)
+    tags: list[str] | None = Field(default=None, description="Searchable tags (max 50 items)")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -281,12 +281,12 @@ class TicketUpdate(VticBaseModel):
 
     @field_validator("title", mode="before")
     @classmethod
-    def validate_title_not_empty(cls, v: Optional[str]) -> Optional[str]:
+    def validate_title_not_empty(cls, v: str | None) -> str | None:
         if v is not None:
             v = Ticket._normalize_single_line(v)
         if v is not None and not v.strip():
             raise ValueError("Title cannot be empty")
-        return v if v else v
+        return v
 
     @field_validator("owner", mode="before")
     @classmethod
@@ -309,14 +309,14 @@ class TicketResponse(VticBaseModel):
 
     id: str
     title: str
-    description: Optional[str] = None
-    fix: Optional[str] = None
+    description: str | None = None
+    fix: str | None = None
     repo: str
-    owner: Optional[str] = None
+    owner: str | None = None
     category: str
     severity: str
     status: str
-    file: Optional[str] = None
+    file: str | None = None
     tags: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
@@ -351,19 +351,19 @@ class TicketResponse(VticBaseModel):
 class SearchFilters(VticBaseModel):
     """Filter parameters for ticket search."""
 
-    severity: Optional[list[Severity]] = Field(
+    severity: list[Severity] | None = Field(
         default=None, description="Filter by severity levels (OR)"
     )
-    status: Optional[list[Status]] = Field(default=None, description="Filter by statuses (OR)")
-    repo: Optional[list[str]] = Field(default=None, description="Filter by repos (supports wildcards)")
-    category: Optional[list[Category]] = Field(default=None, description="Filter by categories (OR)")
-    created_after: Optional[datetime] = Field(default=None)
-    created_before: Optional[datetime] = Field(default=None)
-    updated_after: Optional[datetime] = Field(default=None)
-    updated_before: Optional[datetime] = Field(default=None)
-    tags: Optional[list[str]] = Field(default=None, description="Filter by tags (AND)")
-    has_fix: Optional[bool] = Field(default=None)
-    owner: Optional[str] = Field(default=None)
+    status: list[Status] | None = Field(default=None, description="Filter by statuses (OR)")
+    repo: list[str] | None = Field(default=None, description="Filter by repos (supports wildcards)")
+    category: list[Category] | None = Field(default=None, description="Filter by categories (OR)")
+    created_after: datetime | None = Field(default=None)
+    created_before: datetime | None = Field(default=None)
+    updated_after: datetime | None = Field(default=None)
+    updated_before: datetime | None = Field(default=None)
+    tags: list[str] | None = Field(default=None, description="Filter by tags (AND)")
+    has_fix: bool | None = Field(default=None)
+    owner: str | None = Field(default=None)
 
     @field_validator("repo")
     @classmethod
@@ -445,11 +445,11 @@ class SearchResult(VticBaseModel):
     category: str
     severity: str
     status: str
-    description: Optional[str] = None
+    description: str | None = None
     slug: str
     score: float = Field(ge=0.0, le=1.0, description="Final relevance score (0-1)")
-    bm25_score: Optional[float] = None
-    semantic_score: Optional[float] = None
+    bm25_score: float | None = None
+    semantic_score: float | None = None
     highlights: list[str] = Field(default_factory=list)
 
 
@@ -492,7 +492,7 @@ class PaginatedResponse(VticBaseModel, Generic[T]):
 class ErrorDetail(VticBaseModel):
     """Detailed error information for field-level validation errors."""
 
-    field: Optional[str] = Field(default=None, description="Field that caused the error")
+    field: str | None = Field(default=None, description="Field that caused the error")
     message: str = Field(description="Human-readable error message")
     code: str = Field(description="Machine-readable error code")
 
@@ -502,8 +502,8 @@ class ErrorResponse(VticBaseModel):
 
     error_code: str = Field(description="Machine-readable error code")
     message: str = Field(description="Human-readable error message")
-    details: Optional[list[ErrorDetail]] = Field(default=None)
-    request_id: Optional[str] = Field(default=None, description="Request ID for debugging")
+    details: list[ErrorDetail] | None = Field(default=None)
+    request_id: str | None = Field(default=None, description="Request ID for debugging")
     status_code: int = Field(description="HTTP status code")
 
 
@@ -517,13 +517,6 @@ class HealthResponse(VticBaseModel):
     timestamp: str = Field(description="Response timestamp (ISO 8601)")
     checks: dict[str, bool] = Field(default_factory=dict)
     corrupted_tickets: list[str] = Field(default_factory=list)
-
-
-class CountByField(VticBaseModel):
-    """Count aggregation by a specific field value."""
-
-    value: str = Field(description="Field value")
-    count: int = Field(ge=0, description="Number of tickets")
 
 
 class StatsResponse(VticBaseModel):

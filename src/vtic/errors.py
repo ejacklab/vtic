@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
 
 from .models import ErrorDetail, ErrorResponse
 
@@ -15,7 +14,7 @@ class VticError(Exception):
         error_code: str,
         message: str,
         status_code: int = 500,
-        details: Optional[list[ErrorDetail]] = None,
+        details: list[ErrorDetail] | None = None,
     ) -> None:
         self.error_code = error_code
         self.message = message
@@ -46,7 +45,7 @@ class TicketNotFoundError(VticError):
 class ValidationError(VticError):
     """Raised when request validation fails."""
 
-    def __init__(self, message: str, details: Optional[list[ErrorDetail]] = None) -> None:
+    def __init__(self, message: str, details: list[ErrorDetail] | None = None) -> None:
         super().__init__(
             error_code="VALIDATION_ERROR",
             message=message,

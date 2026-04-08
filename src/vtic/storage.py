@@ -23,6 +23,7 @@ from .errors import (
     TicketNotFoundError,
     TicketReadError,
     TicketWriteError,
+    ValidationError,
 )
 from .models import (
     CATEGORY_PREFIXES,
@@ -66,7 +67,7 @@ class TicketStore:
             return
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
 
-    def create(self, ticket: Ticket) -> Ticket:
+    def _create(self, ticket: Ticket) -> Ticket:
         """Write a pre-validated ticket directly.
 
         This is a low-level helper and does not provide atomic ID allocation.
@@ -98,27 +99,33 @@ class TicketStore:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         lock_path = self.base_dir / ".vtic.lock"
         with lock_path.open("a+", encoding="utf-8") as lock_file:
-            self._lock_exclusive(lock_file)
-            ticket_id = self._next_id(category)
-            now = utc_now()
-            ticket = Ticket(
-                id=ticket_id,
-                title=title,
-                description=description,
-                fix=fix,
-                repo=repo,
-                owner=owner,
-                category=category,
-                severity=severity,
-                status=status,
-                file=file,
-                tags=tags,
-                created_at=now,
-                updated_at=now,
-                slug=slug,
-            )
-            self._write_ticket(ticket, ticket_path(self.base_dir, ticket))
-            return ticket
+            try:
+                self._lock_exclusive(lock_file)
+                ticket_id = self._next_id(category)
+                now = utc_now()
+                ticket = Ticket(
+                    id=ticket_id,
+                    title=title,
+                    description=description,
+                    fix=fix,
+                    repo=repo,
+                    owner=owner,
+                    category=category,
+                    severity=severity,
+                    status=status,
+                    file=file,
+                    tags=tags,
+                    created_at=now,
+                    updated_at=now,
+                    slug=slug,
+                )
+                self._write_ticket(ticket, ticket_path(self.base_dir, ticket))
+                return ticket
+            finally:
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def get(self, ticket_id: str) -> Ticket:
         _, path = self._find_ticket_path(ticket_id)
@@ -173,43 +180,51 @@ class TicketStore:
         return sum(1 for _ in self._iter_ticket_paths())
 
     def update(self, ticket_id: str, updates: TicketUpdate) -> Ticket:
+        update_data = updates.model_dump(exclude_unset=True)
+        if "repo" in update_data:
+            raise ValidationError("Cannot change repo field on update")
         self.base_dir.mkdir(parents=True, exist_ok=True)
         lock_path = self.base_dir / ".vtic.lock"
         temp_path: Path | None = None
         with lock_path.open("a+", encoding="utf-8") as lock_file:
-            self._lock_exclusive(lock_file)
-            current, current_path = self._find_ticket_path(ticket_id)
-            data = current.model_dump()
-            update_data = updates.model_dump(exclude_unset=True)
-            data.update(update_data)
-            if "title" in update_data:
-                data["slug"] = slugify(str(update_data["title"]))
-            data["updated_at"] = utc_now()
-            updated_ticket = Ticket(**data)
-            new_path = ticket_path(self.base_dir, updated_ticket)
             try:
-                new_path.parent.mkdir(parents=True, exist_ok=True)
-                with tempfile.NamedTemporaryFile(
-                    mode="w",
-                    encoding="utf-8",
-                    dir=new_path.parent,
-                    delete=False,
-                ) as temp_file:
-                    temp_file.write(self._serialize_ticket(updated_ticket))
-                    temp_path = Path(temp_file.name)
-                os.replace(temp_path, new_path)
-                temp_path = None
-                if new_path != current_path and current_path.exists():
-                    current_path.unlink()
-            except OSError as exc:
-                if temp_path is not None:
-                    try:
-                        temp_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    except OSError:
-                        pass
-                raise TicketWriteError(updated_ticket.id, str(exc)) from exc
+                self._lock_exclusive(lock_file)
+                current, current_path = self._find_ticket_path(ticket_id)
+                data = current.model_dump()
+                data.update(update_data)
+                if "title" in update_data:
+                    data["slug"] = slugify(str(update_data["title"]))
+                data["updated_at"] = utc_now()
+                updated_ticket = Ticket(**data)
+                new_path = ticket_path(self.base_dir, updated_ticket)
+                try:
+                    new_path.parent.mkdir(parents=True, exist_ok=True)
+                    with tempfile.NamedTemporaryFile(
+                        mode="w",
+                        encoding="utf-8",
+                        dir=new_path.parent,
+                        delete=False,
+                    ) as temp_file:
+                        temp_file.write(self._serialize_ticket(updated_ticket))
+                        temp_path = Path(temp_file.name)
+                    os.replace(temp_path, new_path)
+                    temp_path = None
+                    if new_path != current_path and current_path.exists():
+                        current_path.unlink()
+                except OSError as exc:
+                    if temp_path is not None:
+                        try:
+                            temp_path.unlink()
+                        except FileNotFoundError:
+                            pass
+                        except OSError:
+                            pass
+                    raise TicketWriteError(updated_ticket.id, str(exc)) from exc
+            finally:
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
         return updated_ticket
 
@@ -412,6 +427,20 @@ class TicketStore:
             raise TicketWriteError(ticket.id, str(exc)) from exc
 
     @staticmethod
+    def _ensure_utc(dt: datetime) -> datetime:
+        """Ensure a datetime is timezone-aware (assume UTC if naive)."""
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    @staticmethod
+    def _ensure_utc(dt: datetime) -> datetime:
+        """Ensure a datetime is timezone-aware (assume UTC if naive)."""
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    @staticmethod
     def _matches_filters(ticket: Ticket, filters: SearchFilters | None) -> bool:
         if filters is None:
             return True
@@ -424,16 +453,16 @@ class TicketStore:
         if filters.status and ticket.status not in filters.status:
             return False
         created_after = filters.created_after
-        if created_after is not None and ticket.created_at < (created_after.replace(tzinfo=timezone.utc) if created_after.tzinfo is None else created_after):
+        if created_after is not None and ticket.created_at < (TicketStore._ensure_utc(created_after)):
             return False
         created_before = filters.created_before
-        if created_before is not None and ticket.created_at > (created_before.replace(tzinfo=timezone.utc) if created_before.tzinfo is None else created_before):
+        if created_before is not None and ticket.created_at > (TicketStore._ensure_utc(created_before)):
             return False
         updated_after = filters.updated_after
-        if updated_after is not None and ticket.updated_at < (updated_after.replace(tzinfo=timezone.utc) if updated_after.tzinfo is None else updated_after):
+        if updated_after is not None and ticket.updated_at < (TicketStore._ensure_utc(updated_after)):
             return False
         updated_before = filters.updated_before
-        if updated_before is not None and ticket.updated_at > (updated_before.replace(tzinfo=timezone.utc) if updated_before.tzinfo is None else updated_before):
+        if updated_before is not None and ticket.updated_at > (TicketStore._ensure_utc(updated_before)):
             return False
         if filters.tags and not all(tag in ticket.tags for tag in filters.tags):
             return False

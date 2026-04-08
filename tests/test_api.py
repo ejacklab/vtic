@@ -122,7 +122,7 @@ def test_create_ticket(client: TestClient) -> None:
 
 
 def test_get_ticket(client: TestClient, store: TicketStore) -> None:
-    store.create(_make_ticket("S1", title="CORS wildcard", category=Category.SECURITY))
+    store._create(_make_ticket("S1", title="CORS wildcard", category=Category.SECURITY))
 
     response = client.get("/tickets/S1")
 
@@ -138,8 +138,8 @@ def test_get_not_found(client: TestClient) -> None:
 
 
 def test_list_tickets(client: TestClient, store: TicketStore) -> None:
-    store.create(_make_ticket("C1", title="Cleanup helpers"))
-    store.create(_make_ticket("S1", title="Fix TLS", category=Category.SECURITY))
+    store._create(_make_ticket("C1", title="Cleanup helpers"))
+    store._create(_make_ticket("S1", title="Fix TLS", category=Category.SECURITY))
 
     response = client.get("/tickets")
 
@@ -150,8 +150,8 @@ def test_list_tickets(client: TestClient, store: TicketStore) -> None:
 
 
 def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
-    store.create(_make_ticket("C1", title="Cleanup helpers", severity=Severity.LOW))
-    store.create(
+    store._create(_make_ticket("C1", title="Cleanup helpers", severity=Severity.LOW))
+    store._create(
         _make_ticket(
             "S1",
             title="Fix TLS",
@@ -171,7 +171,7 @@ def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
 def test_list_with_owner_tags_and_date_filters(
     client: TestClient, store: TicketStore
 ) -> None:
-    store.create(
+    store._create(
         _make_ticket(
             "C1",
             title="Owned API ticket",
@@ -179,7 +179,7 @@ def test_list_with_owner_tags_and_date_filters(
             tags=["auth", "api"],
         )
     )
-    store.create(
+    store._create(
         _make_ticket(
             "C2",
             title="Wrong owner",
@@ -213,7 +213,7 @@ def test_list_rejects_invalid_enum_query_param(client: TestClient) -> None:
 
 
 def test_health_reports_healthy_store(client: TestClient, store: TicketStore) -> None:
-    store.create(_make_ticket("C1", title="Cleanup helpers"))
+    store._create(_make_ticket("C1", title="Cleanup helpers"))
 
     response = client.get("/health")
 
@@ -224,7 +224,7 @@ def test_health_reports_healthy_store(client: TestClient, store: TicketStore) ->
 
 
 def test_health_reports_corrupted_ticket(client: TestClient, store: TicketStore) -> None:
-    store.create(_make_ticket("C1", title="Healthy ticket", repo="acme/app"))
+    store._create(_make_ticket("C1", title="Healthy ticket", repo="acme/app"))
     broken_path = store.base_dir / "acme" / "app" / "code_quality" / "C2-broken.md"
     broken_path.parent.mkdir(parents=True, exist_ok=True)
     broken_path.write_text("---\nid: C2\ntitle: Broken\n---\n", encoding="utf-8")
@@ -240,7 +240,7 @@ def test_health_reports_corrupted_ticket(client: TestClient, store: TicketStore)
 
 
 def test_update_ticket(client: TestClient, store: TicketStore) -> None:
-    store.create(_make_ticket("C1", title="Needs update", severity=Severity.MEDIUM))
+    store._create(_make_ticket("C1", title="Needs update", severity=Severity.MEDIUM))
 
     response = client.patch(
         "/tickets/C1",
@@ -255,7 +255,7 @@ def test_update_ticket(client: TestClient, store: TicketStore) -> None:
 
 
 def test_delete_ticket(client: TestClient, store: TicketStore) -> None:
-    store.create(_make_ticket("C1", title="Delete me"))
+    store._create(_make_ticket("C1", title="Delete me"))
 
     response = client.delete("/tickets/C1")
 
@@ -265,7 +265,7 @@ def test_delete_ticket(client: TestClient, store: TicketStore) -> None:
 
 
 def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
-    store.create(
+    store._create(
         _make_ticket(
             "S1",
             title="CORS wildcard in production",
@@ -275,7 +275,7 @@ def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
             tags=["cors", "fastapi"],
         )
     )
-    store.create(
+    store._create(
         _make_ticket(
             "C2",
             title="Another CORS misconfiguration",
@@ -285,7 +285,7 @@ def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
             tags=["cors", "api"],
         )
     )
-    store.create(
+    store._create(
         _make_ticket(
             "C1",
             title="Cleanup auth helpers",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +32,30 @@ from vtic.models import (
 from vtic.search import TicketSearch
 from vtic.storage import TicketStore
 from vtic.utils import parse_repo, slugify, utc_now
+
+
+_TICKET_ID_PATTERN = re.compile(r"^[A-Z]\d+$")
+
+
+def _validate_ticket_id(ticket_id: str) -> str:
+    """Validate and normalize a ticket ID path parameter."""
+    normalized = ticket_id.strip().upper()
+    if not _TICKET_ID_PATTERN.match(normalized):
+        from vtic.errors import ValidationError as VticValidationError
+        raise VticValidationError(f"Invalid ticket ID format: {ticket_id}")
+    return normalized
+
+
+_TICKET_ID_PATTERN = re.compile(r"^[A-Z]\d+$")
+
+
+def _validate_ticket_id(ticket_id: str) -> str:
+    """Validate and normalize a ticket ID path parameter."""
+    normalized = ticket_id.strip().upper()
+    if not _TICKET_ID_PATTERN.match(normalized):
+        from vtic.errors import ValidationError as VticValidationError
+        raise VticValidationError(f"Invalid ticket ID format: {ticket_id}")
+    return normalized
 
 
 def _error_json(error: ErrorResponse) -> JSONResponse:
@@ -159,6 +184,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         responses={404: {"model": ErrorResponse}},
     )
     async def get_ticket(ticket_id: str) -> TicketResponse:
+        ticket_id = _validate_ticket_id(ticket_id)
         return TicketResponse.from_ticket(store.get(ticket_id))
 
     @app.patch(
@@ -167,6 +193,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
     )
     async def update_ticket(ticket_id: str, payload: TicketUpdate) -> TicketResponse:
+        ticket_id = _validate_ticket_id(ticket_id)
         return TicketResponse.from_ticket(store.update(ticket_id, payload))
 
     @app.delete(
@@ -175,6 +202,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         responses={404: {"model": ErrorResponse}},
     )
     async def delete_ticket(ticket_id: str) -> Response:
+        ticket_id = _validate_ticket_id(ticket_id)
         store.delete(ticket_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
