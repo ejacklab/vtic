@@ -518,16 +518,3 @@ class HealthResponse(VticBaseModel):
     checks: dict[str, bool] = Field(default_factory=dict)
     corrupted_tickets: list[str] = Field(default_factory=list)
 
-
-class StatsResponse(VticBaseModel):
-    """System statistics response."""
-
-    total: int = Field(ge=0, description="Total number of tickets")
-    by_severity: list[CountByField] = Field(default_factory=list)
-    by_status: list[CountByField] = Field(default_factory=list)
-    by_category: list[CountByField] = Field(default_factory=list)
-    by_repo: list[CountByField] = Field(default_factory=list)
-    open_by_severity: list[CountByField] = Field(default_factory=list)
-    recently_created: int = Field(default=0, ge=0, description="Tickets created in last 7 days")
-    recently_updated: int = Field(default=0, ge=0, description="Tickets updated in last 7 days")
-    timestamp: str = Field(description="Stats generation timestamp (ISO 8601)")
