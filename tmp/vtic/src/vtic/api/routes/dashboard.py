@@ -150,7 +150,7 @@ def _parse_inline(content: str, filename: str, repo: str) -> Optional[dict]:
 @router.get("/dashboard", response_class=HTMLResponse)
 async def serve_dashboard():
     """Serve the dashboard HTML."""
-    dashboard_path = Path(__file__).parent.parent.parent.parent / "dashboard" / "index.html"
+    dashboard_path = Path(__file__).resolve().parent.parent.parent.parent.parent / "dashboard" / "index.html"
     if not dashboard_path.exists():
         return HTMLResponse(
             "<h1>Dashboard not found</h1><p>dashboard/index.html missing</p>",

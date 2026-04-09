@@ -427,16 +427,18 @@
     // ── Init ──
     (function init() {
       // Auto-connect if served from vtic API
-  if (window.location.pathname.includes("/dashboard")) {
-    const apiBase = window.location.origin;
-    document.getElementById("api-url").value = apiBase;
-    connectAPIViaDashboard(apiBase);
-  } else {
-    const saved = localStorage.getItem('vtic-api-url');
-      if (saved) {
-        document.getElementById('api-url').value = saved;
-        connectAPI();
+      if (window.location.pathname.includes('/dashboard')) {
+        const apiBase = window.location.origin;
+        document.getElementById('api-url').value = apiBase;
+        connectAPIViaDashboard(apiBase);
+      } else {
+        const saved = localStorage.getItem('vtic-api-url');
+        if (saved) {
+          document.getElementById('api-url').value = saved;
+          connectAPI();
+        }
       }
+
       document.addEventListener('keydown', (e) => {
         if (e.key === '/' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
           e.preventDefault();
