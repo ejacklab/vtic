@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from vtic.models.config import Config
 from vtic.errors import VticError, ValidationError, ErrorResponse as VticErrorResponse
 from .deps import get_config, set_config
-from .routes import tickets, search, system, priority
+from .routes import tickets, search, system, priority, dashboard
 
 # App start time for uptime calculation
 _app_start_time: datetime = datetime.now(timezone.utc)
@@ -86,6 +86,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.include_router(search.router, prefix="/search", tags=["Search"])
     app.include_router(system.router, tags=["System", "Management"])
     app.include_router(priority.router, prefix="/api", tags=["Priority"])
+    app.include_router(dashboard.router)
     
     # Register error handlers
     @app.exception_handler(VticError)

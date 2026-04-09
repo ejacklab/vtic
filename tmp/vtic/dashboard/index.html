@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vtic Dashboard</title>
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --surface2: #1a1a26;
+      --surface3: #22222f;
+      --border: #2a2a3a;
+      --text: #e4e4ef;
+      --text2: #8888a0;
+      --accent: #6c5ce7;
+      --accent2: #a29bfe;
+      --green: #00cec9;
+      --red: #ff6b6b;
+      --orange: #fdcb6e;
+      --blue: #74b9ff;
+      --pink: #fd79a8;
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .app { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 260px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 0;
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; bottom: 0;
+      z-index: 10;
+    }
+    .sidebar-brand {
+      padding: 0 20px 24px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+    .sidebar-brand h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    .sidebar-brand span { color: var(--accent2); }
+    .sidebar-brand small { color: var(--text2); font-size: 11px; display: block; margin-top: 2px; }
+    .nav-section { padding: 8px 12px; margin-top: 4px; }
+    .nav-section-title {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px;
+      color: var(--text2); padding: 8px 8px 6px;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 13px; color: var(--text2); transition: all 0.15s;
+      border: none; background: none; width: 100%; text-align: left;
+    }
+    .nav-item:hover { background: var(--surface2); color: var(--text); }
+    .nav-item.active { background: var(--accent); color: #fff; }
+    .nav-item .count {
+      margin-left: auto; font-size: 11px; background: var(--surface3);
+      padding: 1px 7px; border-radius: 10px; color: var(--text2);
+    }
+    .nav-item.active .count { background: rgba(255,255,255,0.2); color: #fff; }
+    .sidebar-footer {
+      margin-top: auto; padding: 16px 20px;
+      border-top: 1px solid var(--border); font-size: 11px; color: var(--text2);
+    }
+
+    /* Main */
+    .main { margin-left: 260px; flex: 1; padding: 28px 32px; max-width: 1400px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+    .topbar h2 { font-size: 20px; font-weight: 600; }
+    .search-box {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 8px 14px; width: 340px;
+    }
+    .search-box input {
+      background: none; border: none; color: var(--text);
+      font-size: 13px; outline: none; flex: 1;
+    }
+    .search-box input::placeholder { color: var(--text2); }
+    .search-box kbd {
+      font-size: 11px; color: var(--text2); background: var(--surface3);
+      padding: 2px 6px; border-radius: 4px;
+    }
+
+    /* Stats */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 14px; margin-bottom: 28px;
+    }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+    }
+    .stat-card .label {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text2); margin-bottom: 6px;
+    }
+    .stat-card .value { font-size: 28px; font-weight: 700; line-height: 1; }
+
+    /* Ticket list */
+    .ticket-list { display: flex; flex-direction: column; gap: 8px; }
+    .ticket-row {
+      display: grid; grid-template-columns: 140px 1fr 110px 90px 110px 140px;
+      align-items: center; gap: 12px; padding: 14px 18px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); cursor: pointer;
+      transition: all 0.15s; font-size: 13px;
+    }
+    .ticket-row:hover {
+      border-color: var(--accent); background: var(--surface2); transform: translateY(-1px);
+    }
+    .ticket-row .id {
+      font-family: 'SF Mono', 'Cascadia Code', monospace;
+      font-weight: 600; font-size: 12px; color: var(--accent2);
+    }
+    .ticket-row .title-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .badge {
+      display: inline-block; padding: 3px 9px; border-radius: 4px;
+      font-size: 11px; font-weight: 500; text-transform: capitalize;
+    }
+    .badge-open { background: rgba(0,206,201,0.12); color: var(--green); }
+    .badge-in_progress { background: rgba(116,185,255,0.12); color: var(--blue); }
+    .badge-blocked { background: rgba(253,203,110,0.12); color: var(--orange); }
+    .badge-fixed { background: rgba(162,155,254,0.12); color: var(--accent2); }
+    .badge-wont_fix { background: rgba(136,136,160,0.12); color: var(--text2); }
+    .badge-closed { background: rgba(136,136,160,0.12); color: var(--text2); }
+    .badge-planning { background: rgba(253,203,110,0.12); color: var(--orange); }
+    .badge-critical { background: rgba(255,107,107,0.15); color: var(--red); }
+    .badge-high { background: rgba(253,121,168,0.12); color: var(--pink); }
+    .badge-medium { background: rgba(253,203,110,0.12); color: var(--orange); }
+    .badge-low { background: rgba(116,185,255,0.12); color: var(--blue); }
+    .badge-info { background: rgba(136,136,160,0.12); color: var(--text2); }
+
+    .ticket-row .repo {
+      font-family: 'SF Mono', 'Cascadia Code', monospace;
+      font-size: 11px; color: var(--text2); overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ticket-row .category { font-size: 11px; color: var(--text2); text-transform: capitalize; }
+    .ticket-row .date { font-size: 11px; color: var(--text2); }
+
+    /* Detail panel */
+    .detail-overlay {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); z-index: 20; backdrop-filter: blur(4px);
+    }
+    .detail-overlay.open { display: flex; justify-content: center; padding-top: 40px; }
+    .detail-panel {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; width: 860px; max-height: 85vh;
+      overflow-y: auto; padding: 32px; position: relative;
+    }
+    .detail-close {
+      position: absolute; top: 16px; right: 16px;
+      background: var(--surface3); border: none; color: var(--text2);
+      width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+      font-size: 16px; display: flex; align-items: center; justify-content: center;
+    }
+    .detail-close:hover { background: var(--border); color: var(--text); }
+    .detail-header { margin-bottom: 20px; }
+    .detail-header .ticket-id {
+      font-family: 'SF Mono', monospace; font-size: 13px;
+      color: var(--accent2); margin-bottom: 4px;
+    }
+    .detail-header h3 { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+    .detail-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .detail-meta .meta-item {
+      font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 4px;
+    }
+    .detail-section { margin-top: 24px; }
+    .detail-section h4 {
+      font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text2); margin-bottom: 10px;
+    }
+    .detail-section .body { font-size: 13px; line-height: 1.7; color: var(--text); }
+    .detail-section .body h1, .detail-section .body h2, .detail-section .body h3 {
+      color: var(--text); margin: 16px 0 8px;
+    }
+    .detail-section .body table {
+      width: 100%; border-collapse: collapse; margin: 10px 0;
+    }
+    .detail-section .body th, .detail-section .body td {
+      padding: 6px 10px; border: 1px solid var(--border);
+      text-align: left; font-size: 12px;
+    }
+    .detail-section .body th { background: var(--surface2); color: var(--text2); font-weight: 500; }
+    .detail-section .body code {
+      background: var(--surface3); padding: 2px 6px; border-radius: 4px; font-size: 12px;
+    }
+    .detail-section .body pre {
+      background: var(--surface3); padding: 14px; border-radius: var(--radius-sm);
+      overflow-x: auto; margin: 10px 0;
+    }
+    .detail-section .body pre code { background: none; padding: 0; }
+    .detail-section .body ul, .detail-section .body ol { padding-left: 20px; }
+    .tags-list { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag { background: var(--surface3); color: var(--text2); padding: 3px 10px; border-radius: 12px; font-size: 11px; }
+    .refs-list { display: flex; gap: 8px; flex-wrap: wrap; }
+    .ref-link {
+      color: var(--accent2); font-family: 'SF Mono', monospace;
+      font-size: 12px; cursor: pointer; text-decoration: none;
+    }
+    .ref-link:hover { text-decoration: underline; }
+
+    /* Story task tree */
+    .story-task {
+      display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+      background: var(--surface2); border-radius: var(--radius-sm); margin-bottom: 4px;
+      font-size: 12px; cursor: pointer; border-left: 3px solid var(--border);
+      transition: all 0.15s;
+    }
+    .story-task:hover { border-left-color: var(--accent); background: var(--surface3); }
+    .story-task.open { border-left-color: var(--green); }
+    .story-task.fixed { border-left-color: var(--accent2); }
+    .story-task .task-id {
+      font-family: 'SF Mono', monospace; color: var(--accent2);
+      font-weight: 500; min-width: 140px;
+    }
+    .story-task .task-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Config bar */
+    .config-bar {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 18px; margin-bottom: 20px;
+      display: flex; align-items: center; gap: 12px; font-size: 12px;
+    }
+    .config-bar label { color: var(--text2); white-space: nowrap; }
+    .config-bar input[type="text"] {
+      background: var(--surface3); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 10px; border-radius: var(--radius-sm); font-size: 12px; width: 220px; outline: none;
+    }
+    .config-bar input:focus { border-color: var(--accent); }
+    .config-bar button {
+      background: var(--accent); color: #fff; border: none; padding: 6px 16px;
+      border-radius: var(--radius-sm); font-size: 12px; cursor: pointer; transition: background 0.15s;
+    }
+    .config-bar button:hover { background: var(--accent2); }
+    .config-bar .or { color: var(--text2); font-size: 11px; }
+    .config-bar .status-text { margin-left: auto; font-size: 11px; }
+
+    /* Loading */
+    .loading { text-align: center; padding: 60px; color: var(--text2); }
+    .loading .spinner {
+      width: 32px; height: 32px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { text-align: center; padding: 60px; color: var(--text2); }
+
+    /* Pagination */
+    .pagination { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 20px; }
+    .pagination button {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px;
+      transition: all 0.15s;
+    }
+    .pagination button:hover { border-color: var(--accent); }
+    .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .pagination .page-info { font-size: 12px; color: var(--text2); }
+
+    /* Filter bar */
+    .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
+    .filter-bar select {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      padding: 7px 12px; border-radius: var(--radius-sm); font-size: 12px; outline: none; cursor: pointer;
+    }
+    .filter-bar select:focus { border-color: var(--accent); }
+    .filter-bar select option { background: var(--surface2); }
+
+    .health-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+    .health-dot.healthy { background: var(--green); }
+    .health-dot.degraded { background: var(--orange); }
+    .health-dot.unhealthy { background: var(--red); }
+    .health-dot.offline { background: var(--text2); }
+
+    /* File drop zone */
+    .drop-zone {
+      border: 2px dashed var(--border); border-radius: var(--radius);
+      padding: 20px; text-align: center; color: var(--text2); font-size: 13px;
+      cursor: pointer; transition: all 0.15s; margin-bottom: 16px;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: rgba(108,92,231,0.05); }
+
+    @media (max-width: 1200px) {
+      .ticket-row { grid-template-columns: 120px 1fr 90px 90px; }
+      .ticket-row .repo, .ticket-row .category { display: none; }
+    }
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main { margin-left: 0; padding: 16px; }
+      .detail-panel { width: 95%; margin: 10px; }
+      .ticket-row { grid-template-columns: 1fr; }
+      .ticket-row .id { font-size: 11px; }
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <h1>vt<span>ic</span></h1>
+        <small>Ticket System Dashboard</small>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">Overview</div>
+        <button class="nav-item active" data-view="all" onclick="switchView('all')">
+          📋 All Tickets <span class="count" id="nav-count-all">—</span>
+        </button>
+        <button class="nav-item" data-view="stories" onclick="switchView('stories')">
+          📖 Stories <span class="count" id="nav-count-stories">—</span>
+        </button>
+        <button class="nav-item" data-view="tasks" onclick="switchView('tasks')">
+          ✅ Tasks <span class="count" id="nav-count-tasks">—</span>
+        </button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">Repos</div>
+        <div id="nav-repos"></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">Status</div>
+        <div id="nav-statuses"></div>
+      </div>
+      <div class="sidebar-footer">
+        <span class="health-dot offline" id="health-dot"></span>
+        <span id="health-text">Offline</span>
+      </div>
+    </nav>
+
+    <main class="main">
+      <!-- Data source config -->
+      <div class="config-bar">
+        <label>API:</label>
+        <input type="text" id="api-url" placeholder="http://localhost:8080" />
+        <button onclick="connectAPI()">Connect</button>
+        <span class="or">or</span>
+        <label>📁</label>
+        <button onclick="document.getElementById('dir-input').click()">Load Tickets Dir</button>
+        <input type="file" id="dir-input" webkitdirectory multiple style="display:none" onchange="loadFromFiles(this.files)" />
+        <span class="status-text" id="conn-status">No data source</span>
+      </div>
+
+      <div class="topbar">
+        <h2 id="view-title">All Tickets</h2>
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="search-input" placeholder="Search tickets..." oninput="handleSearch(this.value)" />
+          <kbd>/</kbd>
+        </div>
+      </div>
+
+      <div class="stats-grid" id="stats-grid"></div>
+
+      <div class="filter-bar">
+        <select id="filter-severity" onchange="applyFilters()">
+          <option value="">All Severity</option>
+          <option value="critical">🔴 Critical</option>
+          <option value="high">🟠 High</option>
+          <option value="medium">🟡 Medium</option>
+          <option value="low">🔵 Low</option>
+          <option value="info">⚪ Info</option>
+        </select>
+        <select id="filter-category" onchange="applyFilters()">
+          <option value="">All Categories</option>
+        </select>
+        <select id="filter-sort" onchange="applyFilters()">
+          <option value="updated">Recently Updated</option>
+          <option value="created">Recently Created</option>
+          <option value="severity">Severity</option>
+          <option value="status">Status</option>
+        </select>
+      </div>
+
+      <div class="ticket-list" id="ticket-list">
+        <div class="loading">
+          <div class="spinner"></div>
+          <div>Connect to vtic API or load ticket files to get started</div>
+        </div>
+      </div>
+
+      <div class="pagination" id="pagination" style="display:none">
+        <button id="prev-btn" onclick="prevPage()">← Prev</button>
+        <span class="page-info" id="page-info">Page 1</span>
+        <button id="next-btn" onclick="nextPage()">Next →</button>
+      </div>
+    </main>
+  </div>
+
+  <div class="detail-overlay" id="detail-overlay" onclick="closeDetail(event)">
+    <div class="detail-panel" id="detail-panel"></div>
+  </div>
+
+  <script>
+    // ── State ──
+    const S = {
+      apiBase: '',
+      connected: false,
+      mode: 'none', // 'api' | 'files' | 'none'
+      allTickets: [],
+      filtered: [],
+      page: 0,
+      limit: 25,
+      view: 'all',
+      statusFilter: '',
+      repoFilter: '',
+      searchQuery: '',
+    };
+
+    // ── Init ──
+    (function init() {
+      // Auto-connect if served from vtic API
+  if (window.location.pathname.includes("/dashboard")) {
+    const apiBase = window.location.origin;
+    document.getElementById("api-url").value = apiBase;
+    connectAPIViaDashboard(apiBase);
+  } else {
+    const saved = localStorage.getItem('vtic-api-url');
+      if (saved) {
+        document.getElementById('api-url').value = saved;
+        connectAPI();
+      }
+      document.addEventListener('keydown', (e) => {
+        if (e.key === '/' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
+          e.preventDefault();
+          document.getElementById('search-input').focus();
+        }
+        if (e.key === 'Escape') closeDetail();
+      });
+    })();
+
+    // ── API Mode ──
+    async function apiGet(path) {
+      const res = await fetch(`${S.apiBase}${path}`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    }
+
+    async function connectAPIViaDashboard(apiBase) {
+      S.apiBase = apiBase;
+      S.mode = 'api';
+      S.connected = true;
+      document.getElementById('conn-status').textContent = '✓ Connected to vtic';
+      document.getElementById('conn-status').style.color = 'var(--green)';
+      document.getElementById('health-dot').className = 'health-dot healthy';
+      document.getElementById('health-text').textContent = 'vtic server';
+      await loadFromDashboardAPI();
+    }
+
+    async function loadFromDashboardAPI() {
+      try {
+        const stats = await (await fetch(S.apiBase + '/dashboard/stats')).json();
+        const all = [];
+        let offset = 0;
+        const limit = 200;
+        while (true) {
+          const res = await (await fetch(S.apiBase + '/dashboard/tickets?limit=' + limit + '&offset=' + offset)).json();
+          const data = res.data || [];
+          all.push(...data);
+          const meta = res.meta || {};
+          if (!meta.has_more || data.length < limit) break;
+          offset += limit;
+        }
+        S.allTickets = all;
+        S.mode = 'files';
+        document.getElementById('health-text').textContent = stats.total + ' tickets (vtic server)';
+        refresh();
+      } catch (err) {
+        document.getElementById('conn-status').textContent = '✗ ' + err.message;
+        document.getElementById('conn-status').style.color = 'var(--red)';
+      }
+    }
+
+    async function connectAPI() {
+      const url = document.getElementById('api-url').value.replace(/\/$/, '');
+      S.apiBase = url;
+      localStorage.setItem('vtic-api-url', url);
+      document.getElementById('conn-status').textContent = 'Connecting...';
+
+      try {
+        const health = await apiGet('/health');
+        S.connected = true;
+        S.mode = 'api';
+
+        const dot = document.getElementById('health-dot');
+        const text = document.getElementById('health-text');
+        dot.className = `health-dot ${health.status || 'healthy'}`;
+        const tc = health.index_status?.ticket_count ?? health.ticket_count ?? '?';
+        text.textContent = `${health.status || 'healthy'} — ${tc} tickets`;
+        document.getElementById('conn-status').textContent = `✓ Connected (v${health.version || '?'})`;
+        document.getElementById('conn-status').style.color = 'var(--green)';
+
+        await loadFromAPI();
+      } catch (err) {
+        S.connected = false;
+        document.getElementById('conn-status').textContent = `✗ Failed: ${err.message}`;
+        document.getElementById('conn-status').style.color = 'var(--red)';
+        document.getElementById('health-dot').className = 'health-dot unhealthy';
+        document.getElementById('health-text').textContent = 'Disconnected';
+      }
+    }
+
+    async function loadFromAPI() {
+      const all = [];
+      let offset = 0;
+      const limit = 100;
+      let total = Infinity;
+      while (offset < total) {
+        const res = await apiGet(`/tickets?limit=${limit}&offset=${offset}`);
+        const data = res.data || res.items || res;
+        const meta = res.meta || {};
+        total = meta.total ?? total;
+        all.push(...(Array.isArray(data) ? data : []));
+        offset += limit;
+        if (!Array.isArray(data) || data.length < limit) break;
+      }
+      S.allTickets = all;
+      refresh();
+    }
+
+    // ── File Mode ──
+    function loadFromFiles(files) {
+      const tickets = [];
+      const tasks = [];
+
+      const promises = Array.from(files).map(file => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const content = e.target.result;
+              const ticket = parseTicketFile(content, file.name);
+              if (ticket) {
+                if (file.name.match(/TASK/i) || (ticket.tags || []).some(t => t.includes('task'))) {
+                  tasks.push(ticket);
+                }
+                tickets.push(ticket);
+              }
+            } catch (err) {
+              console.warn(`Failed to parse ${file.name}:`, err);
+            }
+            resolve();
+          };
+          reader.readAsText(file);
+        });
+      });
+
+      Promise.all(promises).then(() => {
+        S.mode = 'files';
+        S.allTickets = tickets;
+
+        document.getElementById('conn-status').textContent = `✓ Loaded ${tickets.length} tickets from files`;
+        document.getElementById('conn-status').style.color = 'var(--green)';
+        document.getElementById('health-dot').className = 'health-dot healthy';
+        document.getElementById('health-text').textContent = `${tickets.length} tickets (file mode)`;
+        refresh();
+      });
+    }
+
+    function parseTicketFile(content, filename) {
+      // Try YAML frontmatter first
+      const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+      if (fmMatch) {
+        return parseFromFrontmatter(fmMatch[1], fmMatch[2], filename);
+      }
+
+      // Fallback: parse inline headers (**Status:** open, etc.)
+      return parseFromInlineHeaders(content, filename);
+    }
+
+    function parseFromFrontmatter(yamlStr, body, filename) {
+      const meta = {};
+      yamlStr.split('\n').forEach(line => {
+        const m = line.match(/^(\w[\w-]*)\s*:\s*(.+)$/);
+        if (m) {
+          let val = m[2].trim();
+          // Strip quotes
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          // Parse arrays like [a, b, c]
+          if (val.startsWith('[')) {
+            try { meta[m[1]] = JSON.parse(val.replace(/'/g, '"')); } catch { meta[m[1]] = val; }
+          } else {
+            meta[m[1]] = val;
+          }
+        }
+      });
+
+      // Extract ID from filename or frontmatter
+      const idMatch = filename.match(/^([A-Z][A-Z0-9]*-\d+)/i) || filename.match(/^(STORY-\d+)/i) || filename.match(/^(TASK-[A-Z0-9-]+)/i);
+      const id = meta.id || (idMatch ? idMatch[1] : null);
+
+      if (!id) return null;
+
+      return {
+        id: id,
+        title: (meta.title || '').replace(/^\[(Story|Task)\]\s*/i, ''),
+        description: body.trim() || meta.description || '',
+        repo: meta.repo || extractRepo(filename) || '',
+        category: meta.category || 'general',
+        severity: meta.severity || 'medium',
+        status: meta.status || 'open',
+        assignee: meta.assignee || meta.assigned_to || null,
+        fix: meta.fix || null,
+        tags: Array.isArray(meta.tags) ? meta.tags : [],
+        references: Array.isArray(meta.references) ? meta.references : [],
+        created: meta.created || meta.date || null,
+        updated: meta.updated || null,
+        urgency: meta.urgency || null,
+        impact: meta.impact || null,
+      };
+    }
+
+    function parseFromInlineHeaders(content, filename) {
+      // Extract ID from filename
+      const idMatch = filename.match(/^([A-Z][A-Z0-9]*-\d+)/i) || filename.match(/^(STORY-\d+)/i) || filename.match(/^(TASK-[A-Z0-9-]+)/i);
+      const id = idMatch ? idMatch[1] : null;
+      if (!id) return null;
+
+      // Parse inline **Key:** Value headers
+      const meta = {};
+      content.split('\n').forEach(line => {
+        const m = line.match(/^\*\*(\w[\w\s]*?)\*\*:\s*(.+)$/);
+        if (m) {
+          const key = m[1].trim().toLowerCase().replace(/\s+/g, '_');
+          meta[key] = m[2].trim();
+        }
+      });
+
+      // Extract title from first H1
+      const titleMatch = content.match(/^#\s+(.+)$/m);
+      const title = titleMatch ? titleMatch[1].replace(/^\[(Story|Task)\]\s*/i, '').trim() : id;
+
+      // Extract tags from content
+      const tags = [];
+      if (id.match(/STORY/i)) tags.push('story');
+      if (id.match(/TASK/i)) tags.push('task');
+
+      return {
+        id: id,
+        title: title,
+        description: content,
+        repo: meta.repo || extractRepo(filename) || '',
+        category: (meta.category || 'general').toLowerCase(),
+        severity: (meta.severity || 'medium').toLowerCase(),
+        status: (meta.status || 'open').toLowerCase(),
+        assignee: meta.assigned_to || null,
+        fix: null,
+        tags: tags,
+        references: [],
+        created: meta.created || null,
+        updated: meta.updated || null,
+        urgency: null,
+        impact: null,
+      };
+    }
+
+    function extractRepo(filename) {
+      // Path like: tickets/yi1jack0/lovemonself/STORY-010-...
+      const m = filename.match(/tickets\/([^/]+\/[^/]+)\//);
+      return m ? m[1] : '';
+    }
+
+    // ── Core ──
+    function refresh() {
+      renderStats();
+      renderSidebar();
+      applyFilters();
+    }
+
+    function renderStats() {
+      const tickets = S.allTickets;
+      const grid = document.getElementById('stats-grid');
+      const counts = { byStatus: {}, bySeverity: {} };
+
+      tickets.forEach(t => {
+        const s = (t.status || 'open').toLowerCase();
+        const sv = (t.severity || 'medium').toLowerCase();
+        counts.byStatus[s] = (counts.byStatus[s] || 0) + 1;
+        counts.bySeverity[sv] = (counts.bySeverity[sv] || 0) + 1;
+      });
+
+      const bs = counts.byStatus;
+      const bv = counts.bySeverity;
+      const open = bs.open || 0;
+      const inProgress = bs.in_progress || 0;
+      const blocked = bs.blocked || 0;
+      const resolved = (bs.fixed || 0) + (bs.closed || 0);
+      const critical = bv.critical || 0;
+
+      grid.innerHTML = `
+        <div class="stat-card"><div class="label">Total</div><div class="value">${tickets.length}</div></div>
+        <div class="stat-card"><div class="label">Open</div><div class="value" style="color:var(--green)">${open}</div></div>
+        <div class="stat-card"><div class="label">In Progress</div><div class="value" style="color:var(--blue)">${inProgress}</div></div>
+        <div class="stat-card"><div class="label">Blocked</div><div class="value" style="color:var(--orange)">${blocked}</div></div>
+        <div class="stat-card"><div class="label">Resolved</div><div class="value" style="color:var(--accent2)">${resolved}</div></div>
+        <div class="stat-card"><div class="label">Critical</div><div class="value" style="color:var(--red)">${critical}</div></div>
+      `;
+    }
+
+    function renderSidebar() {
+      const tickets = S.allTickets;
+      document.getElementById('nav-count-all').textContent = tickets.length;
+
+      const stories = tickets.filter(t => (t.id || '').match(/STORY/i) || (t.tags || []).some(t => t.includes('story')));
+      const tasks = tickets.filter(t => (t.id || '').match(/TASK/i) || (t.tags || []).some(t => t.includes('task')));
+      document.getElementById('nav-count-stories').textContent = stories.length;
+      document.getElementById('nav-count-tasks').textContent = tasks.length;
+
+      // Repos
+      const repos = {};
+      tickets.forEach(t => { const r = t.repo || 'unknown'; repos[r] = (repos[r] || 0) + 1; });
+      document.getElementById('nav-repos').innerHTML = Object.entries(repos)
+        .sort((a, b) => b[1] - a[1])
+        .map(([r, c]) => `<button class="nav-item" onclick="filterRepo('${r}')">📁 ${r} <span class="count">${c}</span></button>`)
+        .join('');
+
+      // Statuses
+      const byS = {};
+      tickets.forEach(t => { const s = (t.status || 'open').toLowerCase(); byS[s] = (byS[s] || 0) + 1; });
+      const sColors = { open: 'var(--green)', in_progress: 'var(--blue)', blocked: 'var(--orange)', fixed: 'var(--accent2)', wont_fix: 'var(--text2)', closed: 'var(--text2)', planning: 'var(--orange)' };
+      const sLabels = { open: 'Open', in_progress: 'In Progress', blocked: 'Blocked', fixed: 'Fixed', wont_fix: "Won't Fix", closed: 'Closed', planning: 'Planning' };
+      document.getElementById('nav-statuses').innerHTML = Object.entries(byS)
+        .sort((a, b) => b[1] - a[1])
+        .map(([s, c]) => `<button class="nav-item" onclick="filterStatus('${s}')">
+          <span class="status-dot" style="background:${sColors[s] || 'var(--text2)'}"></span>
+          ${sLabels[s] || s} <span class="count">${c}</span>
+        </button>`).join('');
+
+      // Category filter
+      const cats = {};
+      tickets.forEach(t => { const c = (t.category || 'general').toLowerCase(); cats[c] = (cats[c] || 0) + 1; });
+      document.getElementById('filter-category').innerHTML = '<option value="">All Categories</option>' +
+        Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([c]) =>
+          `<option value="${c}">${c.charAt(0).toUpperCase() + c.slice(1)}</option>`).join('');
+    }
+
+    function renderTickets() {
+      const list = document.getElementById('ticket-list');
+      const tickets = S.filtered;
+
+      if (!tickets.length) {
+        list.innerHTML = '<div class="empty">No tickets match your filters</div>';
+        document.getElementById('pagination').style.display = 'none';
+        return;
+      }
+
+      const start = S.page * S.limit;
+      const page = tickets.slice(start, start + S.limit);
+
+      list.innerHTML = page.map(t => {
+        const id = esc(t.id || '?');
+        const title = esc(t.title || 'Untitled');
+        const status = (t.status || 'open').toLowerCase();
+        const severity = (t.severity || 'medium').toLowerCase();
+        const repo = esc(t.repo || '');
+        const category = (t.category || '').toLowerCase();
+        const updated = t.updated || t.created || '';
+
+        return `<div class="ticket-row" onclick="openDetail('${t.id}')">
+          <span class="id">${id}</span>
+          <span class="title-cell">${title}</span>
+          <span><span class="badge badge-${status}">${fmtStatus(status)}</span></span>
+          <span><span class="badge badge-${severity}">${severity}</span></span>
+          <span class="category">${category}</span>
+          <span class="repo">${repo}</span>
+        </div>`;
+      }).join('');
+
+      const totalPages = Math.ceil(tickets.length / S.limit);
+      const pg = document.getElementById('pagination');
+      if (totalPages > 1) {
+        pg.style.display = 'flex';
+        document.getElementById('prev-btn').disabled = S.page === 0;
+        document.getElementById('next-btn').disabled = S.page >= totalPages - 1;
+        document.getElementById('page-info').textContent = `Page ${S.page + 1} of ${totalPages} (${tickets.length})`;
+      } else {
+        pg.style.display = 'none';
+      }
+    }
+
+    // ── Detail ──
+    async function openDetail(ticketId) {
+      const panel = document.getElementById('detail-panel');
+      const overlay = document.getElementById('detail-overlay');
+      panel.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+      overlay.classList.add('open');
+
+      let ticket;
+      if (S.mode === 'api' && S.connected) {
+        try {
+          const res = await apiGet(`/tickets/${ticketId}`);
+          ticket = res.data || res;
+        } catch {
+          ticket = S.allTickets.find(t => t.id === ticketId);
+        }
+      } else {
+        ticket = S.allTickets.find(t => t.id === ticketId);
+      }
+
+      if (ticket) {
+        renderDetail(ticket);
+      } else {
+        panel.innerHTML = `<p style="color:var(--red)">Ticket ${ticketId} not found</p>`;
+      }
+    }
+
+    function renderDetail(t) {
+      const panel = document.getElementById('detail-panel');
+      const status = (t.status || 'open').toLowerCase();
+      const severity = (t.severity || 'medium').toLowerCase();
+      const tags = t.tags || [];
+      const refs = t.references || [];
+
+      // Find sub-tasks
+      const subTasks = S.allTickets.filter(st =>
+        (st.references || []).includes(t.id) ||
+        (st.tags || []).some(tag => tag.includes(t.id.toLowerCase()))
+      );
+
+      // Find parents
+      const parents = S.allTickets.filter(p => refs.includes(p.id));
+
+      let subHtml = '';
+      if (subTasks.length) {
+        subHtml = `<div class="detail-section"><h4>Sub-Tasks (${subTasks.length})</h4><div class="story-tree">
+          ${subTasks.map(st => `<div class="story-task ${st.status || 'open'}" onclick="event.stopPropagation();closeDetail();setTimeout(()=>openDetail('${st.id}'),200)">
+            <span class="task-id">${esc(st.id)}</span>
+            <span class="badge badge-${(st.status||'open').toLowerCase()}" style="font-size:10px">${fmtStatus(st.status||'open')}</span>
+            <span class="task-title">${esc(st.title)}</span>
+          </div>`).join('')}
+        </div></div>`;
+      }
+
+      let parentHtml = '';
+      if (parents.length) {
+        parentHtml = `<div class="detail-section"><h4>Parent Stories</h4><div class="refs-list">
+          ${parents.map(p => `<a class="ref-link" onclick="event.stopPropagation();closeDetail();setTimeout(()=>openDetail('${p.id}'),200)">${esc(p.id)}: ${esc(p.title)}</a>`).join('')}
+        </div></div>`;
+      }
+
+      let priorityHtml = '';
+      if (t.priority_breakdown) {
+        const pb = t.priority_breakdown;
+        priorityHtml = `<div class="detail-section"><h4>Priority</h4>
+          <div style="background:var(--surface2);padding:12px 16px;border-radius:var(--radius-sm);font-size:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Urgency × Impact</span><span style="font-weight:600">${pb.base_label||''}</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Category Multiplier</span><span>×${pb.category_multiplier||1.0}</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="font-weight:600">Final Score</span><span style="font-weight:700;font-size:16px;color:var(--accent2)">${pb.final_score||0}</span></div>
+          </div></div>`;
+      } else if (t.urgency || t.impact) {
+        priorityHtml = `<div class="detail-section"><h4>Priority</h4><div style="font-size:12px;color:var(--text2)">
+          ${t.urgency ? `<span>Urgency: <span class="badge badge-${t.urgency}">${t.urgency}</span></span>` : ''}
+          ${t.impact ? `<span> Impact: <span class="badge badge-${t.impact}">${t.impact}</span></span>` : ''}
+        </div></div>`;
+      }
+
+      panel.innerHTML = `
+        <button class="detail-close" onclick="closeDetail()">✕</button>
+        <div class="detail-header">
+          <div class="ticket-id">${esc(t.id)}</div>
+          <h3>${esc(t.title || 'Untitled')}</h3>
+          <div class="detail-meta">
+            <span class="badge badge-${status}">${fmtStatus(status)}</span>
+            <span class="badge badge-${severity}">${severity}</span>
+            <span class="meta-item">📁 ${esc(t.repo || '')}</span>
+            <span class="meta-item">🏷️ ${(t.category||'').toLowerCase()}</span>
+            ${t.assignee ? `<span class="meta-item">👤 ${esc(t.assignee)}</span>` : ''}
+            ${t.created ? `<span class="meta-item">📅 ${fmtDate(t.created)}</span>` : ''}
+            ${t.updated && t.updated !== t.created ? `<span class="meta-item">🔄 ${fmtDate(t.updated)}</span>` : ''}
+          </div>
+        </div>
+        ${priorityHtml}
+        ${tags.length ? `<div class="detail-section"><h4>Tags</h4><div class="tags-list">${tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div></div>` : ''}
+        ${parentHtml}
+        ${t.description ? `<div class="detail-section"><h4>Description</h4><div class="body">${renderMd(t.description)}</div></div>` : ''}
+        ${t.fix ? `<div class="detail-section"><h4>Fix / Resolution</h4><div class="body">${renderMd(t.fix)}</div></div>` : ''}
+        ${subHtml}
+        ${refs.length && !parents.length ? `<div class="detail-section"><h4>References</h4><div class="refs-list">${refs.map(r => `<span class="ref-link">${esc(r)}</span>`).join('')}</div></div>` : ''}
+      `;
+    }
+
+    function closeDetail(e) {
+      if (e && e.target !== document.getElementById('detail-overlay')) return;
+      document.getElementById('detail-overlay').classList.remove('open');
+    }
+
+    // ── Filtering ──
+    function switchView(view) {
+      S.view = view; S.statusFilter = ''; S.repoFilter = ''; S.page = 0;
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      const btn = document.querySelector(`.nav-item[data-view="${view}"]`);
+      if (btn) btn.classList.add('active');
+      document.getElementById('view-title').textContent = { all: 'All Tickets', stories: 'Stories', tasks: 'Tasks' }[view] || 'All Tickets';
+      applyFilters();
+    }
+
+    function filterStatus(s) {
+      S.statusFilter = S.statusFilter === s ? '' : s; S.page = 0; applyFilters();
+    }
+
+    function filterRepo(r) {
+      S.repoFilter = S.repoFilter === r ? '' : r; S.page = 0; applyFilters();
+    }
+
+    function applyFilters() {
+      let tickets = [...S.allTickets];
+
+      if (S.view === 'stories') {
+        tickets = tickets.filter(t => (t.id || '').match(/STORY/i) || (t.tags || []).some(t => t.includes('story')));
+      } else if (S.view === 'tasks') {
+        tickets = tickets.filter(t => (t.id || '').match(/TASK/i) || (t.tags || []).some(t => t.includes('task')));
+      }
+
+      if (S.statusFilter) tickets = tickets.filter(t => (t.status || 'open').toLowerCase() === S.statusFilter);
+      if (S.repoFilter) tickets = tickets.filter(t => (t.repo || '') === S.repoFilter);
+
+      const sev = document.getElementById('filter-severity').value;
+      if (sev) tickets = tickets.filter(t => (t.severity || 'medium').toLowerCase() === sev);
+
+      const cat = document.getElementById('filter-category').value;
+      if (cat) tickets = tickets.filter(t => (t.category || '').toLowerCase() === cat);
+
+      if (S.searchQuery) {
+        const q = S.searchQuery.toLowerCase();
+        tickets = tickets.filter(t =>
+          (t.title || '').toLowerCase().includes(q) ||
+          (t.id || '').toLowerCase().includes(q) ||
+          (t.description || '').toLowerCase().includes(q) ||
+          (t.tags || []).some(tag => tag.includes(q)) ||
+          (t.repo || '').toLowerCase().includes(q)
+        );
+      }
+
+      const sortBy = document.getElementById('filter-sort').value;
+      const sevOrd = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+      const staOrd = { open: 0, in_progress: 1, blocked: 2, planning: 2, fixed: 3, wont_fix: 4, closed: 5 };
+
+      tickets.sort((a, b) => {
+        if (sortBy === 'updated') return new Date(b.updated || b.created || 0) - new Date(a.updated || a.created || 0);
+        if (sortBy === 'created') return new Date(b.created || 0) - new Date(a.created || 0);
+        if (sortBy === 'severity') return (sevOrd[(a.severity||'medium').toLowerCase()] ?? 2) - (sevOrd[(b.severity||'medium').toLowerCase()] ?? 2);
+        if (sortBy === 'status') return (staOrd[(a.status||'open').toLowerCase()] ?? 0) - (staOrd[(b.status||'open').toLowerCase()] ?? 0);
+        return 0;
+      });
+
+      S.filtered = tickets;
+      renderTickets();
+    }
+
+    let searchTO;
+    function handleSearch(v) {
+      clearTimeout(searchTO);
+      searchTO = setTimeout(() => { S.searchQuery = v; S.page = 0; applyFilters(); }, 250);
+    }
+
+    function prevPage() { if (S.page > 0) { S.page--; renderTickets(); window.scrollTo(0,0); } }
+    function nextPage() {
+      const tp = Math.ceil(S.filtered.length / S.limit);
+      if (S.page < tp - 1) { S.page++; renderTickets(); window.scrollTo(0,0); }
+    }
+
+    // ── Utils ──
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    function fmtStatus(s) { return (s || 'open').replace(/_/g, ' '); }
+
+    function fmtDate(d) {
+      if (!d) return '';
+      const date = new Date(d);
+      const diff = Math.floor((Date.now() - date) / 86400000);
+      if (diff === 0) return 'Today';
+      if (diff === 1) return 'Yesterday';
+      if (diff < 7) return `${diff}d ago`;
+      if (diff < 30) return `${Math.floor(diff / 7)}w ago`;
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    function renderMd(md) {
+      if (!md) return '';
+      let h = esc(md);
+
+      // Tables
+      h = h.replace(/^(\|.+\|)\n(\|[-| :]+\|)\n((?:\|.+\|\n?)*)/gm, (_, hdr, sep, body) => {
+        const ths = hdr.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+        const rows = body.trim().split('\n').map(r =>
+          `<tr>${r.split('|').filter(c=>c.trim()).map(c=>`<td>${c.trim()}</td>`).join('')}</tr>`
+        ).join('');
+        return `<table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table>`;
+      });
+
+      h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      h = h.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+      h = h.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      h = h.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+      h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+      h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      h = h.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      h = h.replace(/^- \[x\] (.+)$/gm, '<li>✅ $1</li>');
+      h = h.replace(/^- \[ \] (.+)$/gm, '<li>⬜ $1</li>');
+      h = h.replace(/^- (.+)$/gm, '<li>$1</li>');
+      h = h.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
+      h = h.replace(/\n\n/g, '</p><p>');
+      h = h.replace(/\n/g, '<br>');
+      h = '<p>' + h + '</p>';
+      h = h.replace(/<p>\s*<\/p>/g, '');
+      h = h.replace(/<p>\s*(<h[1-3]>)/g, '$1');
+      h = h.replace(/(<\/h[1-3]>)\s*<\/p>/g, '$1');
+      h = h.replace(/<p>\s*(<table>)/g, '$1');
+      h = h.replace(/(<\/table>)\s*<\/p>/g, '$1');
+      h = h.replace(/<p>\s*(<pre>)/g, '$1');
+      h = h.replace(/(<\/pre>)\s*<\/p>/g, '$1');
+      return h;
+    }
+  </script>
+</body>
+</html>
