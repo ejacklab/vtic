@@ -131,6 +131,16 @@ class Ticket(VticBaseModel):
         description="URL-safe slug for filename",
     )
 
+    # Multi-agent coordination fields
+    agent_id: str | None = Field(default=None, max_length=100,
+        description="Agent that last modified this ticket")
+    created_by: str | None = Field(default=None, max_length=100,
+        description="Agent that created this ticket")
+    version: int = Field(default=1, ge=1,
+        description="Optimistic concurrency version counter")
+    assignee: str | None = Field(default=None, max_length=100,
+        description="Agent currently assigned to work on this ticket")
+
     @field_validator("id", mode="before")
     @classmethod
     def validate_id_format(cls, v: str) -> str:
@@ -201,8 +211,11 @@ class Ticket(VticBaseModel):
 
     @property
     def search_text(self) -> str:
-        parts = [self.id, self.title, self.description or "", self.file or "", self.fix or "", " ".join(self.tags)]
-        return " ".join(parts)
+        parts = [
+            self.id, self.title, self.description or "", self.file or "",
+            self.fix or "", " ".join(self.tags), self.assignee or "",
+        ]
+        return " ".join(parts).strip()
 
 
 class TicketCreate(VticBaseModel):
@@ -271,6 +284,10 @@ class TicketUpdate(VticBaseModel):
     status: Status | None = Field(default=None)
     file: str | None = Field(default=None, max_length=500)
     tags: list[str] | None = Field(default=None, description="Searchable tags (max 50 items)")
+    expected_version: int | None = Field(default=None, ge=1,
+        description="Expected current version for optimistic concurrency check")
+    assignee: str | None = Field(default=None, max_length=100,
+        description="Agent to assign this ticket to (null clears assignment)")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -324,6 +341,10 @@ class TicketResponse(VticBaseModel):
     is_terminal: bool
     filename: str
     filepath: str
+    agent_id: str | None = None
+    created_by: str | None = None
+    version: int = 1
+    assignee: str | None = None
 
     @classmethod
     def from_ticket(cls, ticket: Ticket) -> "TicketResponse":
@@ -345,6 +366,10 @@ class TicketResponse(VticBaseModel):
             is_terminal=ticket.is_terminal,
             filename=ticket.filename,
             filepath=ticket.filepath,
+            agent_id=ticket.agent_id,
+            created_by=ticket.created_by,
+            version=ticket.version,
+            assignee=ticket.assignee,
         )
 
 
@@ -364,6 +389,8 @@ class SearchFilters(VticBaseModel):
     tags: list[str] | None = Field(default=None, description="Filter by tags (AND)")
     has_fix: bool | None = Field(default=None)
     owner: str | None = Field(default=None)
+    assignee: str | None = Field(default=None,
+        description="Filter by assigned agent")
 
     @field_validator("repo")
     @classmethod
@@ -517,4 +544,3 @@ class HealthResponse(VticBaseModel):
     timestamp: str = Field(description="Response timestamp (ISO 8601)")
     checks: dict[str, bool] = Field(default_factory=dict)
     corrupted_tickets: list[str] = Field(default_factory=list)
-

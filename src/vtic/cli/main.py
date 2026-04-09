@@ -41,8 +41,9 @@ class OutputFormat(StrEnum):
 
 def _resolve_store(tickets_dir: Path | None) -> TicketStore:
     config = load_config()
-    base_dir = tickets_dir or config.tickets.dir
-    return TicketStore(base_dir)
+    base_dir = tickets_dir or config.effective_tickets_dir
+    agent_id = config.shared.agent_id if config.shared.enabled else None
+    return TicketStore(base_dir, agent_id=agent_id)
 
 
 def _print_ticket(ticket: Ticket, title: str) -> None:
@@ -335,6 +336,7 @@ def update(
     description: str | None = typer.Option(
         None, "--description", help="New description"
     ),
+    assignee: str | None = typer.Option(None, "--assignee", help="Assign ticket to agent"),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Update a ticket."""
@@ -359,6 +361,8 @@ def update(
             update_data["title"] = title
         if description is not None:
             update_data["description"] = description
+        if assignee is not None:
+            update_data["assignee"] = assignee
 
         updates = TicketUpdate(**update_data)
         ticket = _resolve_store(dir).update(id, updates)
@@ -383,7 +387,7 @@ def serve(
     from vtic.api import create_app
 
     config = load_config()
-    tickets_dir = dir or config.tickets.dir
+    tickets_dir = dir or config.effective_tickets_dir
     app_instance = create_app(str(tickets_dir))
     uvicorn.run(
         app_instance,

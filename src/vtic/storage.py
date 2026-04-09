@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import fnmatch
+import json
+import logging
 import os
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,7 @@ except ImportError:  # pragma: no cover - Windows does not provide fcntl.
 
 from .constants import VALID_STATUSES
 from .errors import (
+    ConflictError,
     TicketAlreadyExistsError,
     TicketDeleteError,
     TicketNotFoundError,
@@ -37,6 +41,7 @@ from .models import (
 )
 from .utils import isoformat_z, normalize_tags, slugify, ticket_path, utc_now
 
+logger = logging.getLogger(__name__)
 
 DESCRIPTION_DELIMITER = "<!-- DESCRIPTION -->"
 FIX_DELIMITER = "<!-- FIX -->"
@@ -55,8 +60,9 @@ STATUS_ORDER = {
 class TicketStore:
     """Persist tickets as markdown files with YAML-like frontmatter."""
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, *, agent_id: str | None = None) -> None:
         self.base_dir = Path(base_dir)
+        self._agent_id = agent_id
         self._last_list_errors: list[ErrorDetail] = []
 
     @staticmethod
@@ -66,6 +72,40 @@ class TicketStore:
         if fcntl is None:
             return
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+
+    @contextmanager
+    def _with_lock(self):
+        """Acquire exclusive lock. File persists after release."""
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.base_dir / ".vtic.lock"
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            self._lock_exclusive(lock_file)
+            try:
+                yield
+            finally:
+                pass  # lock released on fd close; file persists
+
+    def _log_activity(
+        self,
+        action: str,
+        ticket_id: str,
+        fields: dict[str, object] | None = None,
+    ) -> None:
+        """Append an activity entry to the JSONL log."""
+        entry = {
+            "ts": utc_now().isoformat(),
+            "action": action,
+            "ticket_id": ticket_id,
+            "agent": self._agent_id,
+        }
+        if fields:
+            entry["fields"] = fields
+        try:
+            log_path = self.base_dir / "activity.log.jsonl"
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, default=str) + "\n")
+        except OSError as e:
+            logger.warning("Failed to write activity log: %s", e)
 
     def _create(self, ticket: Ticket) -> Ticket:
         """Write a pre-validated ticket directly.
@@ -96,36 +136,31 @@ class TicketStore:
 
         This is the only safe public API for creating new tickets concurrently.
         """
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        lock_path = self.base_dir / ".vtic.lock"
-        with lock_path.open("a+", encoding="utf-8") as lock_file:
-            try:
-                self._lock_exclusive(lock_file)
-                ticket_id = self._next_id(category)
-                now = utc_now()
-                ticket = Ticket(
-                    id=ticket_id,
-                    title=title,
-                    description=description,
-                    fix=fix,
-                    repo=repo,
-                    owner=owner,
-                    category=category,
-                    severity=severity,
-                    status=status,
-                    file=file,
-                    tags=tags,
-                    created_at=now,
-                    updated_at=now,
-                    slug=slug,
-                )
-                self._write_ticket(ticket, ticket_path(self.base_dir, ticket))
-                return ticket
-            finally:
-                try:
-                    lock_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+        with self._with_lock():
+            ticket_id = self._next_id(category)
+            now = utc_now()
+            ticket = Ticket(
+                id=ticket_id,
+                title=title,
+                description=description,
+                fix=fix,
+                repo=repo,
+                owner=owner,
+                category=category,
+                severity=severity,
+                status=status,
+                file=file,
+                tags=tags,
+                created_at=now,
+                updated_at=now,
+                slug=slug,
+                agent_id=self._agent_id,
+                created_by=self._agent_id,
+                version=1,
+            )
+            self._write_ticket(ticket, ticket_path(self.base_dir, ticket))
+            self._log_activity("created", ticket.id)
+            return ticket
 
     def get(self, ticket_id: str) -> Ticket:
         _, path = self._find_ticket_path(ticket_id)
@@ -183,48 +218,56 @@ class TicketStore:
         update_data = updates.model_dump(exclude_unset=True)
         if "repo" in update_data:
             raise ValidationError("Cannot change repo field on update")
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        lock_path = self.base_dir / ".vtic.lock"
-        temp_path: Path | None = None
-        with lock_path.open("a+", encoding="utf-8") as lock_file:
+
+        expected_version = update_data.pop("expected_version", None)
+
+        with self._with_lock():
+            current, current_path = self._find_ticket_path(ticket_id)
+
+            if expected_version is not None and current.version != expected_version:
+                raise ConflictError(
+                    ticket_id=ticket_id,
+                    expected=expected_version,
+                    actual=current.version,
+                    current_ticket=current,
+                )
+
+            data = current.model_dump()
+            data.update(update_data)
+            if "title" in update_data:
+                data["slug"] = slugify(str(update_data["title"]))
+            data["updated_at"] = utc_now()
+            data["version"] = current.version + 1
+            data["agent_id"] = self._agent_id
+
+            updated_ticket = Ticket(**data)
+            new_path = ticket_path(self.base_dir, updated_ticket)
+            temp_path: Path | None = None
             try:
-                self._lock_exclusive(lock_file)
-                current, current_path = self._find_ticket_path(ticket_id)
-                data = current.model_dump()
-                data.update(update_data)
-                if "title" in update_data:
-                    data["slug"] = slugify(str(update_data["title"]))
-                data["updated_at"] = utc_now()
-                updated_ticket = Ticket(**data)
-                new_path = ticket_path(self.base_dir, updated_ticket)
-                try:
-                    new_path.parent.mkdir(parents=True, exist_ok=True)
-                    with tempfile.NamedTemporaryFile(
-                        mode="w",
-                        encoding="utf-8",
-                        dir=new_path.parent,
-                        delete=False,
-                    ) as temp_file:
-                        temp_file.write(self._serialize_ticket(updated_ticket))
-                        temp_path = Path(temp_file.name)
-                    os.replace(temp_path, new_path)
-                    temp_path = None
-                    if new_path != current_path and current_path.exists():
-                        current_path.unlink()
-                except OSError as exc:
-                    if temp_path is not None:
-                        try:
-                            temp_path.unlink()
-                        except FileNotFoundError:
-                            pass
-                        except OSError:
-                            pass
-                    raise TicketWriteError(updated_ticket.id, str(exc)) from exc
-            finally:
-                try:
-                    lock_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=new_path.parent,
+                    delete=False,
+                ) as temp_file:
+                    temp_file.write(self._serialize_ticket(updated_ticket))
+                    temp_path = Path(temp_file.name)
+                os.replace(temp_path, new_path)
+                temp_path = None
+                if new_path != current_path and current_path.exists():
+                    current_path.unlink()
+            except OSError as exc:
+                if temp_path is not None:
+                    try:
+                        temp_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        pass
+                raise TicketWriteError(updated_ticket.id, str(exc)) from exc
+
+            self._log_activity("updated", ticket_id, fields=update_data)
 
         return updated_ticket
 
@@ -234,6 +277,7 @@ class TicketStore:
         try:
             trash_path.parent.mkdir(parents=True, exist_ok=True)
             os.replace(path, trash_path)
+            self._log_activity("deleted", ticket_id)
             return trash_path
         except FileNotFoundError as exc:
             raise TicketNotFoundError(ticket_id) from exc
@@ -405,7 +449,14 @@ class TicketStore:
             "created_at": isoformat_z(ticket.created_at),
             "updated_at": isoformat_z(ticket.updated_at),
             "tags": ticket.tags,
+            "version": ticket.version,
         }
+        if ticket.agent_id:
+            frontmatter["agent_id"] = ticket.agent_id
+        if ticket.created_by:
+            frontmatter["created_by"] = ticket.created_by
+        if ticket.assignee:
+            frontmatter["assignee"] = ticket.assignee
         lines = ["---", yaml.safe_dump(frontmatter, sort_keys=False).strip(), "---", ""]
         lines.append(DESCRIPTION_DELIMITER)
         if ticket.description:
@@ -462,6 +513,8 @@ class TicketStore:
         if filters.has_fix is not None and bool(ticket.fix) is not filters.has_fix:
             return False
         if filters.owner and ticket.owner != filters.owner:
+            return False
+        if filters.assignee is not None and ticket.assignee != filters.assignee:
             return False
         return True
 

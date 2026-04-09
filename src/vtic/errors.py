@@ -108,3 +108,27 @@ class TicketDeleteError(VticError):
             status_code=500,
         )
 
+
+class ConflictError(VticError):
+    """Raised when optimistic concurrency check fails."""
+
+    def __init__(
+        self,
+        ticket_id: str,
+        expected: int,
+        actual: int,
+        current_ticket: "Ticket | None" = None,
+    ) -> None:
+        self.ticket_id = ticket_id
+        self.expected = expected
+        self.actual = actual
+        self.current_ticket = current_ticket
+        super().__init__(
+            error_code="CONFLICT",
+            message=(
+                f"Ticket {ticket_id} version conflict: "
+                f"expected {expected}, actual {actual}. "
+                f"Re-read the ticket and retry."
+            ),
+            status_code=409,
+        )

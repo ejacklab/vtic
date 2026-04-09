@@ -77,8 +77,9 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
     """Create the vtic FastAPI application."""
 
     config = load_config()
-    base_dir = Path(tickets_dir) if tickets_dir is not None else config.tickets.dir
-    store = TicketStore(base_dir)
+    base_dir = Path(tickets_dir) if tickets_dir is not None else config.effective_tickets_dir
+    agent_id = config.shared.agent_id if config.shared.enabled else None
+    store = TicketStore(base_dir, agent_id=agent_id)
     search = TicketSearch(store)
 
     app = FastAPI(title="vtic API", version=__version__)
@@ -136,6 +137,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         category: Category | None = Query(None),
         repo: str | None = Query(None),
         owner: str | None = Query(None),
+        assignee: str | None = Query(None),
         tags: list[str] | None = Query(None),
         created_after: datetime | None = Query(None),
         created_before: datetime | None = Query(None),
@@ -150,6 +152,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
             category=[category] if category else None,
             repo=[repo] if repo else None,
             owner=owner,
+            assignee=assignee,
             tags=tags,
             created_after=created_after,
             created_before=created_before,
@@ -178,7 +181,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
     @app.patch(
         "/tickets/{ticket_id}",
         response_model=TicketResponse,
-        responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+        responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
     )
     async def update_ticket(ticket_id: str, payload: TicketUpdate) -> TicketResponse:
         ticket_id = _validate_ticket_id(ticket_id)

@@ -28,6 +28,9 @@ _ENV_OVERRIDES: dict[str, tuple[str, str]] = {
     "VTIC_SEARCH_EMBEDDING_PROVIDER": ("search", "embedding_provider"),
     "VTIC_SEARCH_EMBEDDING_MODEL": ("search", "embedding_model"),
     "VTIC_SEARCH_EMBEDDING_DIMENSIONS": ("search", "embedding_dimensions"),
+    "VTIC_SHARED_ENABLED": ("shared", "enabled"),
+    "VTIC_SHARED_STORE_DIR": ("shared", "store_dir"),
+    "VTIC_AGENT_ID": ("shared", "agent_id"),
 }
 
 
@@ -81,6 +84,26 @@ class SearchConfig(BaseModel):
         return self
 
 
+class SharedConfig(BaseModel):
+    """Multi-agent shared store configuration."""
+
+    model_config = {"validate_default": True}
+
+    enabled: bool = Field(default=False,
+        description="Enable shared ticket store mode")
+    store_dir: Path | None = Field(default=None,
+        description="Shared store directory (overrides tickets.dir when set)")
+    agent_id: str | None = Field(default=None, max_length=100,
+        description="Agent identity for shared mode")
+
+    @field_validator("store_dir")
+    @classmethod
+    def validate_store_dir(cls, v: Path | None) -> Path | None:
+        if v is not None:
+            return v.expanduser().resolve()
+        return None
+
+
 class VticConfig(BaseModel):
     """Complete vtic configuration."""
 
@@ -89,6 +112,7 @@ class VticConfig(BaseModel):
     tickets: TicketsConfig = Field(default_factory=TicketsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    shared: SharedConfig = Field(default_factory=SharedConfig)
 
     @classmethod
     def from_toml(cls, path: Path) -> "VticConfig":
@@ -127,9 +151,23 @@ class VticConfig(BaseModel):
             if dims := os.getenv("VTIC_SEARCH_EMBEDDING_DIMENSIONS"):
                 config.search.embedding_dimensions = int(dims)
 
+            if shared_enabled := os.getenv("VTIC_SHARED_ENABLED"):
+                config.shared.enabled = shared_enabled.lower() in ("true", "1", "yes")
+            if shared_dir := os.getenv("VTIC_SHARED_STORE_DIR"):
+                config.shared.store_dir = Path(shared_dir)
+            if agent_id := os.getenv("VTIC_AGENT_ID"):
+                config.shared.agent_id = agent_id
+
             return config
         except (ValueError, PydanticValidationError) as exc:
             raise ConfigError(f"Invalid environment configuration: {exc}") from exc
+
+    @property
+    def effective_tickets_dir(self) -> Path:
+        """Return the effective tickets directory, accounting for shared mode."""
+        if self.shared.enabled and self.shared.store_dir:
+            return self.shared.store_dir
+        return self.tickets.dir
 
 
 def resolve_config_path() -> Path | None:

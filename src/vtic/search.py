@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,6 +120,7 @@ class TicketSearch:
             "file": ticket.file,
             "tags": ticket.tags,
             "updated_at": ticket.updated_at.isoformat(),
+            "version": ticket.version,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -151,7 +154,13 @@ class TicketSearch:
             "tokenized_documents": self._tokenized_documents,
         }
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
-        self._index_path.write_text(json.dumps(payload), encoding="utf-8")
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8",
+            dir=self._index_path.parent, delete=False,
+        ) as tmp:
+            tmp.write(json.dumps(payload))
+            tmp_path = Path(tmp.name)
+        os.replace(tmp_path, self._index_path)
 
     def _load_persisted_index(self, tickets: list[Ticket]) -> bool:
         """Load a persisted index when it matches the current ticket corpus."""
