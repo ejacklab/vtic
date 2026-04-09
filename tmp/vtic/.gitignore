@@ -170,3 +170,6 @@ tickets/
 .zvec/
 index/
 vtic_local.toml
+
+# Historical development logs (not part of the project)
+.dev-logs/
