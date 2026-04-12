@@ -7,6 +7,54 @@ import pytest
 from vtic.models import Category, Severity, Status, Ticket
 
 
+FIXED_TIMESTAMP = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+
+
+def make_ticket(
+    id: str,
+    title: str,
+    *,
+    repo: str = "owner/repo",
+    category: Category = Category.CODE_QUALITY,
+    severity: Severity = Severity.MEDIUM,
+    status: Status = Status.OPEN,
+    description: str | None = None,
+    fix: str | None = None,
+    owner: str | None = "owner",
+    file: str | None = None,
+    tags: list[str] | None = None,
+    created_at: datetime | None = None,
+    updated_at: datetime | None = None,
+) -> Ticket:
+    """Create a test ticket with sensible defaults.
+
+    Provides all Ticket fields so callers can override any subset.
+    Used across test_storage, test_api, and test_search to avoid
+    duplicating helper functions (I8 from Round 1 review).
+    """
+    ts = created_at or FIXED_TIMESTAMP
+    return Ticket(
+        id=id,
+        title=title,
+        description=description,
+        fix=fix,
+        repo=repo,
+        owner=owner,
+        category=category,
+        severity=severity,
+        status=status,
+        file=file,
+        tags=tags or [],
+        created_at=ts,
+        updated_at=updated_at or ts,
+        slug=slugify(title),
+    )
+
+
+# Re-export slugify so test files that import it from here don't break
+from vtic.utils import slugify  # noqa: E402
+
+
 @pytest.fixture
 def sample_timestamp() -> datetime:
     return datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
@@ -53,4 +101,3 @@ def sample_tickets(sample_ticket: Ticket, sample_timestamp: datetime) -> list[Ti
             slug="duplicated-auth-helpers-across-services",
         ),
     ]
-

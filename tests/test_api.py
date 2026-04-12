@@ -14,8 +14,9 @@ from vtic.models import Category, SearchRequest, Severity, Status, Ticket, Ticke
 from vtic.storage import TicketStore
 from vtic.utils import slugify
 
+from conftest import make_ticket
 
-FIXED_TIMESTAMP = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+
 
 
 class TestClient(StarletteTestClient):
@@ -49,36 +50,6 @@ class TestClient(StarletteTestClient):
         return None
 
 
-def _make_ticket(
-    ticket_id: str,
-    *,
-    title: str,
-    repo: str = "owner/repo",
-    category: Category = Category.CODE_QUALITY,
-    severity: Severity = Severity.MEDIUM,
-    status: Status = Status.OPEN,
-    description: str | None = None,
-    fix: str | None = None,
-    owner: str | None = "owner",
-    file: str | None = None,
-    tags: list[str] | None = None,
-) -> Ticket:
-    return Ticket(
-        id=ticket_id,
-        title=title,
-        description=description,
-        fix=fix,
-        repo=repo,
-        owner=owner,
-        category=category,
-        severity=severity,
-        status=status,
-        file=file,
-        tags=tags or [],
-        created_at=FIXED_TIMESTAMP,
-        updated_at=FIXED_TIMESTAMP,
-        slug=slugify(title),
-    )
 
 
 @pytest.fixture
@@ -122,7 +93,7 @@ def test_create_ticket(client: TestClient) -> None:
 
 
 def test_get_ticket(client: TestClient, store: TicketStore) -> None:
-    store._create(_make_ticket("S1", title="CORS wildcard", category=Category.SECURITY))
+    store._create(make_ticket("S1", title="CORS wildcard", category=Category.SECURITY))
 
     response = client.get("/tickets/S1")
 
@@ -138,8 +109,8 @@ def test_get_not_found(client: TestClient) -> None:
 
 
 def test_list_tickets(client: TestClient, store: TicketStore) -> None:
-    store._create(_make_ticket("C1", title="Cleanup helpers"))
-    store._create(_make_ticket("S1", title="Fix TLS", category=Category.SECURITY))
+    store._create(make_ticket("C1", title="Cleanup helpers"))
+    store._create(make_ticket("S1", title="Fix TLS", category=Category.SECURITY))
 
     response = client.get("/tickets")
 
@@ -150,9 +121,9 @@ def test_list_tickets(client: TestClient, store: TicketStore) -> None:
 
 
 def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
-    store._create(_make_ticket("C1", title="Cleanup helpers", severity=Severity.LOW))
+    store._create(make_ticket("C1", title="Cleanup helpers", severity=Severity.LOW))
     store._create(
-        _make_ticket(
+        make_ticket(
             "S1",
             title="Fix TLS",
             category=Category.SECURITY,
@@ -172,7 +143,7 @@ def test_list_with_owner_tags_and_date_filters(
     client: TestClient, store: TicketStore
 ) -> None:
     store._create(
-        _make_ticket(
+        make_ticket(
             "C1",
             title="Owned API ticket",
             owner="smoke01",
@@ -180,7 +151,7 @@ def test_list_with_owner_tags_and_date_filters(
         )
     )
     store._create(
-        _make_ticket(
+        make_ticket(
             "C2",
             title="Wrong owner",
             owner="alex",
@@ -213,7 +184,7 @@ def test_list_rejects_invalid_enum_query_param(client: TestClient) -> None:
 
 
 def test_health_reports_healthy_store(client: TestClient, store: TicketStore) -> None:
-    store._create(_make_ticket("C1", title="Cleanup helpers"))
+    store._create(make_ticket("C1", title="Cleanup helpers"))
 
     response = client.get("/health")
 
@@ -224,7 +195,7 @@ def test_health_reports_healthy_store(client: TestClient, store: TicketStore) ->
 
 
 def test_health_reports_corrupted_ticket(client: TestClient, store: TicketStore) -> None:
-    store._create(_make_ticket("C1", title="Healthy ticket", repo="acme/app"))
+    store._create(make_ticket("C1", title="Healthy ticket", repo="acme/app"))
     broken_path = store.base_dir / "acme" / "app" / "code_quality" / "C2-broken.md"
     broken_path.parent.mkdir(parents=True, exist_ok=True)
     broken_path.write_text("---\nid: C2\ntitle: Broken\n---\n", encoding="utf-8")
@@ -240,7 +211,7 @@ def test_health_reports_corrupted_ticket(client: TestClient, store: TicketStore)
 
 
 def test_update_ticket(client: TestClient, store: TicketStore) -> None:
-    store._create(_make_ticket("C1", title="Needs update", severity=Severity.MEDIUM))
+    store._create(make_ticket("C1", title="Needs update", severity=Severity.MEDIUM))
 
     response = client.patch(
         "/tickets/C1",
@@ -255,7 +226,7 @@ def test_update_ticket(client: TestClient, store: TicketStore) -> None:
 
 
 def test_delete_ticket(client: TestClient, store: TicketStore) -> None:
-    store._create(_make_ticket("C1", title="Delete me"))
+    store._create(make_ticket("C1", title="Delete me"))
 
     response = client.delete("/tickets/C1")
 
@@ -266,7 +237,7 @@ def test_delete_ticket(client: TestClient, store: TicketStore) -> None:
 
 def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
     store._create(
-        _make_ticket(
+        make_ticket(
             "S1",
             title="CORS wildcard in production",
             category=Category.SECURITY,
@@ -276,7 +247,7 @@ def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
         )
     )
     store._create(
-        _make_ticket(
+        make_ticket(
             "C2",
             title="Another CORS misconfiguration",
             category=Category.SECURITY,
@@ -286,7 +257,7 @@ def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
         )
     )
     store._create(
-        _make_ticket(
+        make_ticket(
             "C1",
             title="Cleanup auth helpers",
             description="Refactor duplicated auth helper code.",

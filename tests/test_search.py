@@ -10,38 +10,15 @@ from vtic.search import TicketSearch, _BuiltinBM25
 from vtic.storage import TicketStore
 from vtic.utils import slugify
 
+from conftest import make_ticket
 
-def _make_ticket(
-    id: str,
-    title: str,
-    description: str = "",
-    repo: str = "owner/repo",
-    category: Category = Category.CODE_QUALITY,
-    severity: Severity = Severity.MEDIUM,
-    status: Status = Status.OPEN,
-    tags: list[str] | None = None,
-) -> Ticket:
-    now = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-    return Ticket(
-        id=id,
-        title=title,
-        description=description or None,
-        repo=repo,
-        category=category,
-        severity=severity,
-        status=status,
-        tags=tags or [],
-        created_at=now,
-        updated_at=now,
-        slug=slugify(title),
-    )
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> TicketStore:
     ticket_store = TicketStore(tmp_path / "tickets")
     tickets = [
-        _make_ticket(
+        make_ticket(
             "S1",
             "CORS Wildcard in Production",
             description="All FastAPI services use allow_origins=[*]. CORS remains open.",
@@ -50,7 +27,7 @@ def store(tmp_path: Path) -> TicketStore:
             severity=Severity.CRITICAL,
             tags=["cors", "security", "fastapi"],
         ),
-        _make_ticket(
+        make_ticket(
             "C2",
             "Duplicated auth helpers across services",
             description="Helpers drift across services and increase auth maintenance.",
@@ -60,7 +37,7 @@ def store(tmp_path: Path) -> TicketStore:
             status=Status.IN_PROGRESS,
             tags=["auth", "refactor"],
         ),
-        _make_ticket(
+        make_ticket(
             "P3",
             "Slow query path in analytics worker",
             description="Analytics worker hits repeated database scans under load.",
@@ -69,7 +46,7 @@ def store(tmp_path: Path) -> TicketStore:
             severity=Severity.MEDIUM,
             tags=["query", "db"],
         ),
-        _make_ticket(
+        make_ticket(
             "D4",
             "Missing onboarding documentation",
             description="Developer setup steps are incomplete for staging.",
@@ -79,7 +56,7 @@ def store(tmp_path: Path) -> TicketStore:
             status=Status.CLOSED,
             tags=["docs", "onboarding"],
         ),
-        _make_ticket(
+        make_ticket(
             "S5",
             "TLS certificate rotation missing",
             description="Production TLS certificates are manually rotated and risk expiry.",
@@ -88,7 +65,7 @@ def store(tmp_path: Path) -> TicketStore:
             severity=Severity.CRITICAL,
             tags=["tls", "security"],
         ),
-        _make_ticket(
+        make_ticket(
             "C6",
             "Analytics alert thresholds drift",
             description="Alert threshold tuning is inconsistent across analytics jobs.",
@@ -188,19 +165,19 @@ def test_search_empty_store_returns_empty_response(tmp_path: Path) -> None:
 def test_search_ranking(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     tickets = [
-        _make_ticket(
+        make_ticket(
             "C1",
             "Auth failure",
             description="auth",
             repo="owner/ranking",
         ),
-        _make_ticket(
+        make_ticket(
             "C2",
             "Auth auth auth regression",
             description="auth auth",
             repo="owner/ranking",
         ),
-        _make_ticket(
+        make_ticket(
             "C3",
             "Minor cleanup",
             description="unrelated auth mention",
@@ -276,7 +253,7 @@ def test_special_characters_in_query(store: TicketStore) -> None:
 def test_search_with_tokenless_corpus_returns_empty(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     store._create(
-        _make_ticket(
+        make_ticket(
             "C1",
             "x",
             description="y",
@@ -324,7 +301,7 @@ def test_search_falls_back_when_bm25_scores_are_non_positive(
 def test_search_rebuilds_index_when_ticket_content_changes(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     store._create(
-        _make_ticket(
+        make_ticket(
             "C1",
             "Old title",
             description="legacy content",
