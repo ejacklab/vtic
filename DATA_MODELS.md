@@ -34,7 +34,7 @@ class Status(StrEnum):
 class Category(StrEnum):
     """Ticket categorization for organization and routing."""
     SECURITY = "security"            # Security vulnerabilities, CVEs
-    AUTH = "auth"                    # Authentication, authorization issues
+    AUTH="auth"                    # Authentication, authorization issues
     CODE_QUALITY = "code_quality"    # Refactoring, tech debt, linting
     PERFORMANCE = "performance"      # Speed, memory, optimization
     FRONTEND = "frontend"            # UI/UX, browser, CSS, JS
