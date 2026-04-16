@@ -10,42 +10,9 @@ import pytest
 from vtic.errors import TicketAlreadyExistsError, TicketNotFoundError
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from vtic.storage import TRASH_DIRNAME, TicketStore
-from vtic.utils import slugify, ticket_path
+from vtic.utils import ticket_path
 
-
-FIXED_TIMESTAMP = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-
-
-def _make_ticket(
-    ticket_id: str,
-    *,
-    title: str,
-    repo: str = "owner/repo",
-    category: Category = Category.CODE_QUALITY,
-    severity: Severity = Severity.MEDIUM,
-    status: Status = Status.OPEN,
-    description: str | None = None,
-    fix: str | None = None,
-    owner: str | None = "owner",
-    file: str | None = None,
-    tags: list[str] | None = None,
-) -> Ticket:
-    return Ticket(
-        id=ticket_id,
-        title=title,
-        description=description,
-        fix=fix,
-        repo=repo,
-        owner=owner,
-        category=category,
-        severity=severity,
-        status=status,
-        file=file,
-        tags=tags or [],
-        created_at=FIXED_TIMESTAMP,
-        updated_at=FIXED_TIMESTAMP,
-        slug=slugify(title),
-    )
+from tests.conftest import make_ticket as _make_ticket
 
 
 def test_init_creates_directory(tmp_path: Path) -> None:

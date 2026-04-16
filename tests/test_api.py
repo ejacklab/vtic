@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncio
@@ -12,10 +11,8 @@ from starlette.testclient import TestClient as StarletteTestClient
 from vtic.api import create_app
 from vtic.models import Category, SearchRequest, Severity, Status, Ticket, TicketCreate
 from vtic.storage import TicketStore
-from vtic.utils import slugify
 
-
-FIXED_TIMESTAMP = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+from tests.conftest import make_ticket as _make_ticket
 
 
 class TestClient(StarletteTestClient):
@@ -48,37 +45,6 @@ class TestClient(StarletteTestClient):
     def close(self) -> None:
         return None
 
-
-def _make_ticket(
-    ticket_id: str,
-    *,
-    title: str,
-    repo: str = "owner/repo",
-    category: Category = Category.CODE_QUALITY,
-    severity: Severity = Severity.MEDIUM,
-    status: Status = Status.OPEN,
-    description: str | None = None,
-    fix: str | None = None,
-    owner: str | None = "owner",
-    file: str | None = None,
-    tags: list[str] | None = None,
-) -> Ticket:
-    return Ticket(
-        id=ticket_id,
-        title=title,
-        description=description,
-        fix=fix,
-        repo=repo,
-        owner=owner,
-        category=category,
-        severity=severity,
-        status=status,
-        file=file,
-        tags=tags or [],
-        created_at=FIXED_TIMESTAMP,
-        updated_at=FIXED_TIMESTAMP,
-        slug=slugify(title),
-    )
 
 
 @pytest.fixture

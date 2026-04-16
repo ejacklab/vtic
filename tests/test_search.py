@@ -8,33 +8,8 @@ import pytest
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from vtic.search import TicketSearch, _BuiltinBM25
 from vtic.storage import TicketStore
-from vtic.utils import slugify
 
-
-def _make_ticket(
-    id: str,
-    title: str,
-    description: str = "",
-    repo: str = "owner/repo",
-    category: Category = Category.CODE_QUALITY,
-    severity: Severity = Severity.MEDIUM,
-    status: Status = Status.OPEN,
-    tags: list[str] | None = None,
-) -> Ticket:
-    now = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-    return Ticket(
-        id=id,
-        title=title,
-        description=description or None,
-        repo=repo,
-        category=category,
-        severity=severity,
-        status=status,
-        tags=tags or [],
-        created_at=now,
-        updated_at=now,
-        slug=slugify(title),
-    )
+from tests.conftest import make_ticket as _make_ticket
 
 
 @pytest.fixture
