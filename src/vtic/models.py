@@ -142,6 +142,8 @@ class Ticket(VticBaseModel):
     @field_validator("title", mode="before")
     @classmethod
     def validate_title_not_empty(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise ValueError("Title must be a string")
         v = cls._normalize_single_line(v)
         if not v or not v.strip():
             raise ValueError("Title cannot be empty")
@@ -235,6 +237,8 @@ class TicketCreate(VticBaseModel):
     @field_validator("title", mode="before")
     @classmethod
     def validate_title_not_empty(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise ValueError("Title must be a string")
         v = Ticket._normalize_single_line(v)
         if not v or not v.strip():
             raise ValueError("Title cannot be empty")
@@ -283,6 +287,8 @@ class TicketUpdate(VticBaseModel):
     @classmethod
     def validate_title_not_empty(cls, v: str | None) -> str | None:
         if v is not None:
+            if not isinstance(v, str):
+                raise ValueError("Title must be a string")
             v = Ticket._normalize_single_line(v)
         if v is not None and not v.strip():
             raise ValueError("Title cannot be empty")
