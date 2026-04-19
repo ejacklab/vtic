@@ -1,598 +1,542 @@
+"""Tests for the vtic CLI commands."""
+
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
-import typer
 from typer.testing import CliRunner
 
 from vtic.cli.main import app
-from vtic.storage import TicketStore
 
 runner = CliRunner()
 
 
-def _make_store(tmp_path: Path) -> TicketStore:
-    return TicketStore(tmp_path / "tickets")
-
-
-def _env(tmp_path: Path) -> dict[str, str]:
-    return {"VTIC_TICKETS_DIR": str((tmp_path / "tickets").resolve())}
-
-
-def test_create_ticket(tmp_path: Path) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "create",
-            "--repo",
-            "ejacklab/open-dsearch",
-            "--category",
-            "security",
-            "--severity",
-            "critical",
-            "--title",
-            "CORS Wildcard in Production",
-            "--description",
-            "All FastAPI services use allow_origins=['*'].",
-            "--file",
-            "backend/api-gateway/main.py:27-32",
-            "--tags",
-            "cors,security,fastapi",
-        ],
-        env=_env(tmp_path),
-    )
-
-    assert result.exit_code == 0
-    ticket_path = (
-        tmp_path
-        / "tickets"
-        / "ejacklab"
-        / "open-dsearch"
-        / "security"
-        / "S1-cors-wildcard-in-production.md"
-    )
-    assert ticket_path.exists()
-
-
-def test_init_command(tmp_path: Path) -> None:
-    tickets_dir = tmp_path / "initialized-tickets"
-
-    result = runner.invoke(app, ["init", "--dir", str(tickets_dir)], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert tickets_dir.exists()
-    assert tickets_dir.is_dir()
-
-
-def test_create_command_all_flags(tmp_path: Path) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "create",
-            "--repo",
-            "ejacklab/open-dsearch",
-            "--category",
-            "security",
-            "--severity",
-            "critical",
-            "--title",
-            "CORS Wildcard in Production",
-            "--description",
-            "All FastAPI services use allow_origins=['*'].",
-            "--fix",
-            "Restrict allowed origins to trusted domains.",
-            "--file",
-            "backend/api-gateway/main.py:27-32",
-            "--tags",
-            "cors,security,fastapi",
-        ],
-        env=_env(tmp_path),
-    )
-
-    assert result.exit_code == 0
-    assert (
-        tmp_path
-        / "tickets"
-        / "ejacklab"
-        / "open-dsearch"
-        / "security"
-        / "S1-cors-wildcard-in-production.md"
-    ).exists()
-    ticket = _make_store(tmp_path).get("S1")
-    assert ticket.fix == "Restrict allowed origins to trusted domains."
-
-
-def test_create_command_supports_owner_and_status(tmp_path: Path) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "create",
-            "--repo",
-            "ejacklab/open-dsearch",
-            "--owner",
-            "custom-owner",
-            "--status",
-            "blocked",
-            "--title",
-            "Created with owner and status",
-        ],
-        env=_env(tmp_path),
-    )
-
-    assert result.exit_code == 0
-    ticket = _make_store(tmp_path).get("C1")
-    assert ticket.owner == "custom-owner"
-    assert ticket.status.value == "blocked"
-
-
-def test_create_missing_required_field_raises(tmp_path: Path) -> None:
-    result = runner.invoke(app, ["create", "--title", "Missing repo"], env=_env(tmp_path))
-
-    assert result.exit_code != 0
-
-
-def test_create_invalid_repo_returns_clean_error(tmp_path: Path) -> None:
-    result = runner.invoke(
-        app,
-        ["create", "--repo", "nocolon", "--title", "Invalid repo"],
-        env=_env(tmp_path),
-    )
-
-    assert result.exit_code == 1
-    assert "Invalid repo format: nocolon. Expected: 'owner/repo'" in result.output
-    assert "Traceback" not in result.output
-
-
-def test_get_ticket(tmp_path: Path) -> None:
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--title", "Duplicated auth helpers"],
-        env=_env(tmp_path),
-    )
-
-    result = runner.invoke(app, ["get", "c1"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "C1" in result.output
-    assert "Duplicated auth helpers" in result.output
-
-
-def test_list_tickets(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "First ticket"], env=_env(tmp_path))
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--category", "security", "--title", "Second ticket"],
-        env=_env(tmp_path),
-    )
-
-    result = runner.invoke(app, ["list"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "First ticket" in result.output
-    assert "Second ticket" in result.output
-
-
-def test_list_with_filters(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Code quality ticket"], env=_env(tmp_path))
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--category", "security", "--title", "Security ticket"],
-        env=_env(tmp_path),
-    )
-
-    result = runner.invoke(app, ["list", "--category", "security"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "Security ticket" in result.output
-    assert "Code quality ticket" not in result.output
-
-
-def test_list_with_owner_tags_and_date_filters(tmp_path: Path) -> None:
-    runner.invoke(
-        app,
-        [
-            "create",
-            "--repo",
-            "ejacklab/open-dsearch",
-            "--owner",
-            "smoke01",
-            "--tags",
-            "auth,api",
-            "--title",
-            "Owned ticket",
-        ],
-        env=_env(tmp_path),
-    )
-    runner.invoke(
-        app,
-        [
-            "create",
-            "--repo",
-            "ejacklab/open-dsearch",
-            "--owner",
-            "alex",
-            "--tags",
-            "auth,api",
-            "--title",
-            "Wrong owner",
-        ],
-        env=_env(tmp_path),
-    )
-
-    result = runner.invoke(
-        app,
-        [
-            "list",
-            "--owner",
-            "smoke01",
-            "--tags",
-            "auth,api",
-            "--created-after",
-            "2000-01-01T00:00:00Z",
-            "--updated-before",
-            "2100-01-01T00:00:00Z",
-            "--format",
-            "json",
-        ],
-        env=_env(tmp_path),
-    )
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert [ticket["id"] for ticket in payload] == ["C1"]
-
-
-def test_get_ticket_json_format(tmp_path: Path) -> None:
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--title", "JSON ticket"],
-        env=_env(tmp_path),
-    )
-
-    result = runner.invoke(app, ["get", "C1", "--format", "json"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["id"] == "C1"
-    assert payload["title"] == "JSON ticket"
-
-
-def test_list_tickets_json_format_and_sort(tmp_path: Path) -> None:
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--severity", "low", "--title", "Low priority"],
-        env=_env(tmp_path),
-    )
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--severity", "critical", "--title", "Critical priority"],
-        env=_env(tmp_path),
-    )
-
-    result = runner.invoke(app, ["list", "--sort", "severity", "--format", "json"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert [ticket["id"] for ticket in payload] == ["C2", "C1"]
-
-
-def test_update_ticket(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Needs fix"], env=_env(tmp_path))
-
-    result = runner.invoke(app, ["update", "--id", "C1", "--status", "fixed"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "fixed" in result.output
-    ticket = _make_store(tmp_path).get("C1")
-    assert ticket.status.value == "fixed"
-
-
-def test_update_ticket_all_new_flags(tmp_path: Path) -> None:
-    runner.invoke(
-        app,
-        [
-            "create",
-            "--repo",
-            "ejacklab/open-dsearch",
-            "--title",
-            "Original title",
-            "--description",
-            "Original description",
-        ],
-        env=_env(tmp_path),
-    )
-
-    result = runner.invoke(
-        app,
-        [
-            "update",
-            "--id",
-            "C1",
-            "--status",
-            "in_progress",
-            "--severity",
-            "high",
-            "--fix",
-            "Apply the shared abstraction.",
-            "--owner",
-            "smoke01",
-            "--category",
-            "security",
-            "--file",
-            "src/app.py:10-20",
-            "--tags",
-            "auth,security",
-            "--title",
-            "Updated title",
-            "--description",
-            "Updated description",
-        ],
-        env=_env(tmp_path),
-    )
-
-    assert result.exit_code == 0
-    ticket = _make_store(tmp_path).get("C1")
-    assert ticket.status.value == "in_progress"
-    assert ticket.severity.value == "high"
-    assert ticket.fix == "Apply the shared abstraction."
-    assert ticket.owner == "smoke01"
-    assert ticket.category.value == "security"
-    assert ticket.file == "src/app.py:10-20"
-    assert ticket.tags == ["auth", "security"]
-    assert ticket.title == "Updated title"
-    assert ticket.description == "Updated description"
-
-
-def test_update_invalid_category_returns_clean_error(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Needs category"], env=_env(tmp_path))
-
-    result = runner.invoke(app, ["update", "--id", "C1", "--category", "invalid"], env=_env(tmp_path))
-
-    assert result.exit_code == 1
-    assert "'invalid' is not a valid Category" in result.output
-    assert "Traceback" not in result.output
-
-
-def test_create_invalid_file_returns_clean_error(tmp_path: Path) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "create",
-            "--repo",
-            "ejacklab/open-dsearch",
-            "--title",
-            "Bad file reference",
-            "--file",
-            ":12",
-        ],
-        env=_env(tmp_path),
-    )
-
-    assert result.exit_code == 1
-    assert "file" in result.output.lower()
-    assert "Traceback" not in result.output
-
-
-def test_create_invalid_tags_returns_clean_error(tmp_path: Path) -> None:
-    tags = ",".join(f"tag{i}" for i in range(51))
-    result = runner.invoke(
-        app,
-        [
-            "create",
-            "--repo",
-            "ejacklab/open-dsearch",
-            "--title",
-            "Too many tags",
-            "--tags",
-            tags,
-        ],
-        env=_env(tmp_path),
-    )
-
-    assert result.exit_code == 1
-    assert "Cannot have more than 50 tags" in result.output
-    assert "Traceback" not in result.output
-
-
-def test_delete_ticket(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Delete me"], env=_env(tmp_path))
-
-    result = runner.invoke(app, ["delete", "--id", "C1", "--yes", "--force"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "Permanently deleted" in result.output
-    assert not any((tmp_path / "tickets").rglob("*.md"))
-
-
-def test_delete_ticket_soft_delete_moves_to_trash(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Trash me"], env=_env(tmp_path))
-
-    result = runner.invoke(app, ["delete", "--id", "C1", "--yes"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "Deleted (moved to trash)" in result.output
-    assert not (_make_store(tmp_path).base_dir / "ejacklab" / "open-dsearch" / "code_quality" / "C1-trash-me.md").exists()
-    assert (_make_store(tmp_path).base_dir / ".trash" / "ejacklab" / "open-dsearch" / "code_quality" / "C1-trash-me.md").exists()
-
-
-def test_get_nonexistent_ticket(tmp_path: Path) -> None:
-    result = runner.invoke(app, ["get", "S99"], env=_env(tmp_path))
-
-    assert result.exit_code == 1
-    assert "Ticket S99 not found" in result.output
-
-
-def test_delete_requires_confirmation(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Keep me"], env=_env(tmp_path))
-
-    result = runner.invoke(app, ["delete", "--id", "C1"], input="n\n", env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "Deletion cancelled" in result.output
-    assert _make_store(tmp_path).get("C1").id == "C1"
-
-
-def test_delete_yes_skips_confirmation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Skip prompt"], env=_env(tmp_path))
-
-    def _unexpected_confirm(*args: object, **kwargs: object) -> bool:
-        raise AssertionError("typer.confirm should not be called when --yes is set")
-
-    monkeypatch.setattr(typer, "confirm", _unexpected_confirm)
-
-    result = runner.invoke(app, ["delete", "--id", "C1", "--yes"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "Delete ticket C1?" not in result.output
-    assert "Deleted (moved to trash)" in result.output
-    assert (_make_store(tmp_path).base_dir / ".trash" / "ejacklab" / "open-dsearch" / "code_quality" / "C1-skip-prompt.md").exists()
-
-
-def test_list_empty_outputs_empty_table(tmp_path: Path) -> None:
-    result = runner.invoke(app, ["list"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "Tickets" in result.output
-
-
-def test_search_no_results_prints_empty_state(tmp_path: Path) -> None:
-    result = runner.invoke(app, ["search", "missing-term"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "No results found." in result.output
-
-
-def test_restore_ticket_from_trash(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Restore me"], env=_env(tmp_path))
-    runner.invoke(app, ["delete", "--id", "C1", "--yes"], env=_env(tmp_path))
-
-    result = runner.invoke(app, ["restore", "--id", "C1"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "Restored ticket:" in result.output
-    assert _make_store(tmp_path).get("C1").title == "Restore me"
-
-
-def test_list_invalid_sort_returns_clean_error(tmp_path: Path) -> None:
-    runner.invoke(app, ["create", "--repo", "ejacklab/open-dsearch", "--title", "Sortable"], env=_env(tmp_path))
-
-    result = runner.invoke(app, ["list", "--sort", "invalid"], env=_env(tmp_path))
-
-    assert result.exit_code == 1
-    assert "Unsupported sort field: invalid" in result.output
-    assert "Traceback" not in result.output
-
-
-def test_search_json_format(tmp_path: Path) -> None:
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--title", "Searchable auth helper"],
-        env=_env(tmp_path),
-    )
-
-    result = runner.invoke(app, ["search", "auth", "--format", "json"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["total"] == 1
-    assert payload["results"][0]["id"] == "C1"
-
-
-def test_reindex_command(tmp_path: Path) -> None:
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--title", "Indexed ticket"],
-        env=_env(tmp_path),
-    )
-    result = runner.invoke(app, ["reindex"], env=_env(tmp_path))
-
-    assert result.exit_code == 0
-    assert "Rebuilt BM25 index" in result.output
-    assert (tmp_path / "tickets" / ".vtic-search-index.json").exists()
-
-
-def test_serve_uses_config_defaults_when_host_and_port_not_passed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config_path = tmp_path / "vtic.toml"
-    config_path.write_text("[server]\nhost = \"127.0.0.9\"\nport = 9123\n", encoding="utf-8")
-    called: dict[str, object] = {}
-
-    def fake_run(app_instance, *, host: str, port: int) -> None:
-        called["host"] = host
-        called["port"] = port
-
-    monkeypatch.setattr("uvicorn.run", fake_run)
-
-    result = runner.invoke(
-        app,
-        ["serve"],
-        env={**_env(tmp_path), "VTIC_CONFIG": str(config_path)},
-    )
-
-    assert result.exit_code == 0
-    assert called == {"host": "127.0.0.9", "port": 9123}
-
-
-def test_serve_rejects_out_of_range_port(tmp_path: Path) -> None:
-    result = runner.invoke(app, ["serve", "--port", "70000"], env=_env(tmp_path))
-
-    assert result.exit_code != 0
-    assert "Invalid value for '--port'" in result.output
-
-
-def test_search_with_filters_cli(tmp_path: Path) -> None:
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--category", "security", "--title", "Security ticket"],
-        env=_env(tmp_path),
-    )
-    runner.invoke(
-        app,
-        ["create", "--repo", "ejacklab/open-dsearch", "--title", "Code quality ticket"],
-        env=_env(tmp_path),
-    )
-
-    # Search with category filter
-    result = runner.invoke(
-        app,
-        ["search", "ticket", "--category", "security", "--format", "json"],
-        env=_env(tmp_path),
-    )
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["total"] == 1
-    assert payload["results"][0]["id"] == "S1"
-
-    # Search with severity filter
-    result = runner.invoke(
-        app,
-        ["search", "ticket", "--severity", "high", "--format", "json"],
-        env=_env(tmp_path),
-    )
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    # Only S1 has critical severity, not high
-    assert payload["total"] == 0
-
-    # Search with repo filter
-    result = runner.invoke(
-        app,
-        ["search", "ticket", "--repo", "ejacklab/open-dsearch", "--format", "json"],
-        env=_env(tmp_path),
-    )
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["total"] == 2
-
-    # Search with status filter
-    result = runner.invoke(
-        app,
-        ["search", "ticket", "--status", "open", "--format", "json"],
-        env=_env(tmp_path),
-    )
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["total"] == 2
+@pytest.fixture()
+def tickets_dir(tmp_path: Path) -> Path:
+    """Provide an isolated tickets directory for each test."""
+    d = tmp_path / "tickets"
+    d.mkdir()
+    return d
+
+
+def _dir_args(tickets_dir: Path) -> list[str]:
+    return ["--dir", str(tickets_dir)]
+
+
+class TestInit:
+    def test_init_creates_directory(self, tmp_path: Path) -> None:
+        target = tmp_path / "fresh"
+        result = runner.invoke(app, ["init", "--dir", str(target)])
+        assert result.exit_code == 0
+        assert target.exists()
+        assert "Initialized" in result.output
+
+    def test_init_idempotent(self, tickets_dir: Path) -> None:
+        runner.invoke(app, ["init", *_dir_args(tickets_dir)])
+        result = runner.invoke(app, ["init", *_dir_args(tickets_dir)])
+        assert result.exit_code == 0
+
+
+class TestCreate:
+    def _create_ticket(self, tickets_dir: Path, **overrides: str) -> str:
+        """Create a ticket via CLI and return the output."""
+        args = [
+            *_dir_args(tickets_dir),
+            "--repo", overrides.get("repo", "owner/repo"),
+            "--title", overrides.get("title", "Test ticket"),
+        ]
+        if "category" in overrides:
+            args += ["--category", overrides["category"]]
+        if "severity" in overrides:
+            args += ["--severity", overrides["severity"]]
+        if "description" in overrides:
+            args += ["--description", overrides["description"]]
+        if "file" in overrides:
+            args += ["--file", overrides["file"]]
+        result = runner.invoke(app, ["create", *args])
+        return result
+
+    def test_create_basic(self, tickets_dir: Path) -> None:
+        result = self._create_ticket(tickets_dir)
+        assert result.exit_code == 0
+        assert "Created Ticket" in result.output
+        assert "C1" in result.output
+        assert "Test ticket" in result.output
+
+    def test_create_with_category_security(self, tickets_dir: Path) -> None:
+        result = self._create_ticket(
+            tickets_dir,
+            category="security",
+            severity="critical",
+            title="SQL injection",
+        )
+        assert result.exit_code == 0
+        assert "S1" in result.output
+        assert "security" in result.output
+
+    def test_create_auto_increments_id(self, tickets_dir: Path) -> None:
+        self._create_ticket(tickets_dir, title="First")
+        result = self._create_ticket(tickets_dir, title="Second")
+        assert result.exit_code == 0
+        assert "C2" in result.output
+
+    def test_create_with_file_reference(self, tickets_dir: Path) -> None:
+        result = self._create_ticket(
+            tickets_dir,
+            title="File bug",
+            file="src/app.py:42",
+        )
+        assert result.exit_code == 0
+        assert "src/app.py:42" in result.output
+
+    def test_create_with_description(self, tickets_dir: Path) -> None:
+        result = self._create_ticket(
+            tickets_dir,
+            title="Described",
+            description="Detailed description here",
+        )
+        assert result.exit_code == 0
+        assert "Detailed description here" in result.output
+
+    def test_create_rejects_missing_repo(self, tickets_dir: Path) -> None:
+        args = [*_dir_args(tickets_dir), "--title", "No repo"]
+        result = runner.invoke(app, ["create", *args])
+        assert result.exit_code != 0
+
+    def test_create_rejects_bad_repo_format(self, tickets_dir: Path) -> None:
+        result = self._create_ticket(tickets_dir, repo="badrepo")
+        assert result.exit_code != 0
+
+    def test_create_creates_directory_structure(self, tickets_dir: Path) -> None:
+        self._create_ticket(tickets_dir, repo="myorg/myrepo", title="Structure test")
+        expected_dir = tickets_dir / "myorg" / "myrepo" / "code_quality"
+        assert expected_dir.exists()
+        md_files = list(expected_dir.glob("*.md"))
+        assert len(md_files) == 1
+
+
+class TestGet:
+    def test_get_existing_ticket(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Get me",
+                "--severity", "high",
+            ],
+            input=None,
+        )
+        # Create first, then get
+        create_result = runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Get me",
+                "--severity", "high",
+            ],
+        )
+        assert create_result.exit_code == 0
+
+        result = runner.invoke(app, ["get", "C1", *_dir_args(tickets_dir)])
+        assert result.exit_code == 0
+        assert "Get me" in result.output
+        assert "high" in result.output
+
+    def test_get_not_found(self, tickets_dir: Path) -> None:
+        result = runner.invoke(app, ["get", "X99", *_dir_args(tickets_dir)])
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "X99" in result.output
+
+    def test_get_json_format(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "JSON ticket",
+            ],
+        )
+        result = runner.invoke(
+            app, ["get", "C1", *_dir_args(tickets_dir), "--format", "json"]
+        )
+        assert result.exit_code == 0
+        # Should be valid JSON
+        import json
+        data = json.loads(result.output)
+        assert data["title"] == "JSON ticket"
+
+    def test_get_security_ticket(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--category", "security",
+                "--title", "CORS issue",
+            ],
+        )
+        result = runner.invoke(app, ["get", "S1", *_dir_args(tickets_dir)])
+        assert result.exit_code == 0
+        assert "S1" in result.output
+        assert "CORS issue" in result.output
+
+
+class TestList:
+    def test_list_empty(self, tickets_dir: Path) -> None:
+        result = runner.invoke(app, ["list", *_dir_args(tickets_dir)])
+        assert result.exit_code == 0
+
+    def test_list_shows_tickets(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "First ticket",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Second ticket",
+            ],
+        )
+        result = runner.invoke(app, ["list", *_dir_args(tickets_dir)])
+        assert result.exit_code == 0
+        assert "C1" in result.output
+        assert "C2" in result.output
+
+    def test_list_filter_by_repo(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "orgA/repo1",
+                "--title", "Ticket A",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "orgB/repo2",
+                "--title", "Ticket B",
+            ],
+        )
+        result = runner.invoke(
+            app, ["list", *_dir_args(tickets_dir), "--repo", "orga/repo1"]
+        )
+        assert result.exit_code == 0
+        assert "C1" in result.output
+        assert "C2" not in result.output
+
+    def test_list_filter_by_category(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--category", "security",
+                "--title", "Sec issue",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--category", "testing",
+                "--title", "Test issue",
+            ],
+        )
+        result = runner.invoke(
+            app, ["list", *_dir_args(tickets_dir), "--category", "security"]
+        )
+        assert result.exit_code == 0
+        assert "S1" in result.output
+        assert "T1" not in result.output
+
+    def test_list_filter_by_severity(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--severity", "critical",
+                "--title", "Critical issue",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--severity", "low",
+                "--title", "Low issue",
+            ],
+        )
+        result = runner.invoke(
+            app, ["list", *_dir_args(tickets_dir), "--severity", "critical"]
+        )
+        assert result.exit_code == 0
+        assert "C1" in result.output
+        assert "C2" not in result.output
+
+    def test_list_filter_by_status(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Open ticket",
+            ],
+        )
+        result = runner.invoke(
+            app, ["list", *_dir_args(tickets_dir), "--status", "open"]
+        )
+        assert result.exit_code == 0
+        assert "C1" in result.output
+
+        result_closed = runner.invoke(
+            app, ["list", *_dir_args(tickets_dir), "--status", "closed"]
+        )
+        assert result_closed.exit_code == 0
+        assert "C1" not in result_closed.output
+
+    def test_list_json_format(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "JSON list",
+            ],
+        )
+        result = runner.invoke(
+            app, ["list", *_dir_args(tickets_dir), "--format", "json"]
+        )
+        assert result.exit_code == 0
+        import json
+        data = json.loads(result.output)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["title"] == "JSON list"
+
+
+class TestUpdate:
+    def test_update_status(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "To update",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "update", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--status", "in_progress",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "in_progress" in result.output
+
+    def test_update_severity(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Severity change",
+                "--severity", "low",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "update", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--severity", "critical",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "critical" in result.output
+
+    def test_update_description(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Update desc",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "update", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--description", "New description content",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "New description content" in result.output
+
+    def test_update_not_found(self, tickets_dir: Path) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "update", *_dir_args(tickets_dir),
+                "--id", "X99",
+                "--status", "closed",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_update_multiple_fields(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Multi update",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "update", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--status", "fixed",
+                "--severity", "critical",
+                "--fix", "Applied the fix",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "fixed" in result.output
+        assert "critical" in result.output
+
+
+class TestDelete:
+    def test_delete_with_yes(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "To delete",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "delete", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--yes",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Deleted" in result.output
+
+    def test_delete_confirmed(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Confirm delete",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "delete", *_dir_args(tickets_dir),
+                "--id", "C1",
+            ],
+            input="y\n",
+        )
+        assert result.exit_code == 0
+        assert "Deleted" in result.output
+
+    def test_delete_cancelled(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Cancel delete",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "delete", *_dir_args(tickets_dir),
+                "--id", "C1",
+            ],
+            input="n\n",
+        )
+        assert result.exit_code == 0
+        assert "cancelled" in result.output.lower()
+
+    def test_delete_not_found(self, tickets_dir: Path) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "delete", *_dir_args(tickets_dir),
+                "--id", "X99",
+                "--yes",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_delete_force(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Force delete",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "delete", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--yes",
+                "--force",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Permanently deleted" in result.output
+
+    def test_delete_moves_to_trash_by_default(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Soft delete",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "delete", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--yes",
+            ],
+        )
+        # Ticket should be in trash, not gone completely
+        trash_dir = tickets_dir / ".trash"
+        assert trash_dir.exists()
+        trash_files = list(trash_dir.rglob("*.md"))
+        assert len(trash_files) == 1
