@@ -46,6 +46,10 @@ def test_all_enum_values() -> None:
     assert Category.DEPENDENCIES.value == "dependencies"
 
 
+def test_category_auth_value_is_auth() -> None:
+    assert Category.AUTH.value == "auth"
+
+
 def test_category_prefixes_completeness() -> None:
     assert set(CATEGORY_PREFIXES) == set(Category)
     assert {category.value: prefix for category, prefix in CATEGORY_PREFIXES.items()} == CONSTANT_CATEGORY_PREFIXES
@@ -166,6 +170,32 @@ def test_ticket_create_validation_defaults_and_repo_normalization() -> None:
     assert payload.tags == ["upper", "duplicate"]
 
 
+def test_ticket_create_with_all_explicit_fields() -> None:
+    payload = TicketCreate(
+        title="Explicit auth ticket",
+        repo="Owner/Repo",
+        description="Detailed description.",
+        fix="Apply the patch.",
+        owner="Smoke01",
+        category=Category.AUTH,
+        severity=Severity.HIGH,
+        status=Status.BLOCKED,
+        file="src/auth.py:10-20",
+        tags=["Auth", "backend", "Auth"],
+    )
+
+    assert payload.title == "Explicit auth ticket"
+    assert payload.repo == "owner/repo"
+    assert payload.description == "Detailed description."
+    assert payload.fix == "Apply the patch."
+    assert payload.owner == "Smoke01"
+    assert payload.category is Category.AUTH
+    assert payload.severity is Severity.HIGH
+    assert payload.status is Status.BLOCKED
+    assert payload.file == "src/auth.py:10-20"
+    assert payload.tags == ["auth", "backend"]
+
+
 def test_ticket_create_validation_rejects_empty_title() -> None:
     with pytest.raises(PydanticValidationError, match="Title cannot be empty"):
         TicketCreate(title="   ", repo="owner/repo")
@@ -205,6 +235,11 @@ def test_ticket_validation_edge_cases(payload: dict[str, object], match: str) ->
 def test_ticket_update_forbids_extra_fields() -> None:
     with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
         TicketUpdate(title="Updated", invalid="field")
+
+
+def test_ticket_update_validates_repo_unchanged() -> None:
+    with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
+        TicketUpdate(repo="owner/other")
 
 
 def test_ticket_create_forbids_extra_fields() -> None:

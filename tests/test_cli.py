@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -99,9 +100,43 @@ class TestCreate:
         assert result.exit_code == 0
         assert "Detailed description here" in result.output
 
+    def test_create_with_all_flags(self, tickets_dir: Path) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "create",
+                *_dir_args(tickets_dir),
+                "--repo", "acme/platform",
+                "--title", "Auth middleware issue",
+                "--category", "auth",
+                "--severity", "high",
+                "--description", "Authentication flow breaks on refresh.",
+                "--fix", "Refresh the token before retrying.",
+                "--file", "src/auth.py:12-20",
+                "--tags", "auth,backend,token",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Auth middleware issue" in result.output
+        assert "acme/platform" in result.output
+        assert "auth" in result.output
+        assert "high" in result.output
+        assert "Authentication flow breaks on refresh." in result.output
+        assert "Refresh the token before retrying." in result.output
+        assert "src/auth.py:12-20" in result.output
+        assert "auth, backend, token" in result.output
+
     def test_create_rejects_missing_repo(self, tickets_dir: Path) -> None:
         args = [*_dir_args(tickets_dir), "--title", "No repo"]
         result = runner.invoke(app, ["create", *args])
+        assert result.exit_code != 0
+
+    def test_create_missing_title_raises(self, tickets_dir: Path) -> None:
+        result = runner.invoke(
+            app,
+            ["create", *_dir_args(tickets_dir), "--repo", "owner/repo"],
+        )
         assert result.exit_code != 0
 
     def test_create_rejects_bad_repo_format(self, tickets_dir: Path) -> None:
@@ -327,6 +362,51 @@ class TestList:
         assert len(data) == 1
         assert data[0]["title"] == "JSON list"
 
+    def test_list_with_multiple_filters(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--category", "security",
+                "--severity", "critical",
+                "--title", "Critical security issue",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--category", "security",
+                "--severity", "low",
+                "--title", "Low security issue",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--category", "testing",
+                "--severity", "critical",
+                "--title", "Critical testing issue",
+            ],
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "list", *_dir_args(tickets_dir),
+                "--category", "security",
+                "--severity", "critical",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Critical security issue" in result.output
+        assert "Low security issue" not in result.output
+        assert "Critical testing issue" not in result.output
+
 
 class TestUpdate:
     def test_update_status(self, tickets_dir: Path) -> None:
@@ -423,6 +503,26 @@ class TestUpdate:
         assert result.exit_code == 0
         assert "fixed" in result.output
         assert "critical" in result.output
+
+    def test_update_title_via_cli(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Old title",
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "update", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--title", "Updated title",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Updated title" in result.output
 
 
 class TestDelete:
@@ -540,3 +640,49 @@ class TestDelete:
         assert trash_dir.exists()
         trash_files = list(trash_dir.rglob("*.md"))
         assert len(trash_files) == 1
+
+
+class TestSearch:
+    def test_search_command(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Auth middleware issue",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Database cleanup",
+            ],
+        )
+
+        result = runner.invoke(app, ["search", "auth", *_dir_args(tickets_dir)])
+
+        assert result.exit_code == 0
+        assert "Auth middleware issue" in result.output
+        assert "Database cleanup" not in result.output
+
+    def test_search_json_format(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Keyword auth result",
+            ],
+        )
+
+        result = runner.invoke(
+            app,
+            ["search", "auth", *_dir_args(tickets_dir), "--format", "json"],
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["total"] == 1
+        assert payload["results"][0]["title"] == "Keyword auth result"

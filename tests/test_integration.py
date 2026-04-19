@@ -189,3 +189,41 @@ def test_concurrent_create_then_search(tmp_path: Path) -> None:
     # "number 3" should rank C3 highly (exact match for "3")
     result_ids = [r["id"] for r in payload["results"]]
     assert "C3" in result_ids
+
+
+def test_create_search_update_verify_search(tmp_path: Path) -> None:
+    tickets_dir = tmp_path / "tickets"
+    runner.invoke(app, ["init", "--dir", str(tickets_dir)], env=_env(tmp_path))
+
+    create_result = runner.invoke(
+        app,
+        ["create", "--dir", str(tickets_dir), "--repo", "acme/platform", "--title", "Auth flow regression"],
+        env=_env(tmp_path),
+    )
+    assert create_result.exit_code == 0
+
+    first_search = runner.invoke(
+        app,
+        ["search", "auth", "--dir", str(tickets_dir), "--format", "json"],
+        env=_env(tmp_path),
+    )
+    assert first_search.exit_code == 0
+    first_payload = json.loads(first_search.output)
+    assert first_payload["total"] == 1
+    assert first_payload["results"][0]["id"] == "C1"
+
+    update_result = runner.invoke(
+        app,
+        ["update", "--dir", str(tickets_dir), "--id", "C1", "--title", "Session flow regression"],
+        env=_env(tmp_path),
+    )
+    assert update_result.exit_code == 0
+
+    second_search = runner.invoke(
+        app,
+        ["search", "auth", "--dir", str(tickets_dir), "--format", "json"],
+        env=_env(tmp_path),
+    )
+    assert second_search.exit_code == 0
+    second_payload = json.loads(second_search.output)
+    assert second_payload["total"] == 0
