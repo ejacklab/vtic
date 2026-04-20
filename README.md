@@ -124,7 +124,7 @@ curl -X POST http://localhost:8900/search \
 
 ## Ticket File Structure
 
-Tickets are stored as markdown files organized in 5 levels:
+Tickets are stored as markdown files organized in 4 levels:
 
 ```
 tickets/

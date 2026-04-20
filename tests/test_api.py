@@ -230,6 +230,16 @@ def test_delete_ticket(client: TestClient, store: TicketStore) -> None:
         store.get("C1")
 
 
+def test_delete_ticket_force(client: TestClient, store: TicketStore) -> None:
+    store._create(_make_ticket("C1", title="Force delete me"))
+
+    response = client.delete("/tickets/C1?force=true")
+
+    assert response.status_code == 204
+    with pytest.raises(Exception, match="Ticket C1 not found"):
+        store.get("C1")
+
+
 def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
     store._create(
         _make_ticket(
