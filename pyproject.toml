@@ -24,7 +24,7 @@ dev = [
 ]
 
 [project.scripts]
-vtic = "vtic.cli.main:app"
+vtic = "vtic.cli:app"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
