@@ -285,6 +285,8 @@ class TicketStore:
         return f"{prefix}{highest + 1}"
 
     def _find_ticket_path(self, ticket_id: str) -> tuple[Ticket, Path]:
+        # Linear scan over all .md files — O(n) where n = number of tickets.
+        # Acceptable for local-first use case; consider an ID→path index for scale.
         normalized = ticket_id.upper()
         for path in self._iter_ticket_paths():
             stem_prefix = path.stem.split("-", 1)[0].upper()
@@ -319,7 +321,9 @@ class TicketStore:
 
     @staticmethod
     def _split_frontmatter(raw: str) -> tuple[str, str]:
-        # Normalize CRLF -> LF for cross-platform markdown file compatibility
+        # Normalize CRLF -> LF for cross-platform markdown file compatibility.
+        # This also handles \r\n in the closing marker (\n---\n) since
+        # after normalization any \r\n---\r\n becomes \n---\n.
         normalized = raw.replace("\r\n", "\n")
         if not normalized.startswith("---\n"):
             raise ValueError("Missing frontmatter")

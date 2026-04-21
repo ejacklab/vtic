@@ -409,6 +409,10 @@ class TicketSearch:
         ]
 
         took_ms = math.ceil((time.perf_counter() - started_at) * 1000)
+        # Note: total asymmetry between BM25 and fallback paths:
+        # - Normal path: total = tickets with positive BM25 score > 0
+        # - Fallback path: total = tickets with any query term overlap
+        # Both are reasonable; API consumers should treat total as approximate.
         return SearchResponse(
             results=results,
             total=len(ranked),
