@@ -79,8 +79,11 @@ vtic update --id C1 --severity high --description "Updated after partial fix"
 
 ### Delete
 
+Tickets are soft-deleted by default (moved to `.trash/` and restorable). Use `--force` to permanently remove:
+
 ```bash
 vtic delete --id C1 --yes
+vtic delete --id C1 --yes --force   # permanent removal
 ```
 
 ## API Server
@@ -98,7 +101,7 @@ vtic serve --host 0.0.0.0 --port 8900
 | `POST` | `/tickets` | Create a ticket |
 | `GET` | `/tickets/:id` | Get a ticket |
 | `PATCH` | `/tickets/:id` | Update a ticket |
-| `DELETE` | `/tickets/:id` | Delete a ticket |
+| `DELETE` | `/tickets/:id` | Soft-delete ticket (use `?force=true` for permanent) |
 | `POST` | `/search` | Keyword search with filters and pagination |
 | `GET` | `/tickets` | List with filters |
 
@@ -121,14 +124,14 @@ curl -X POST http://localhost:8900/search \
 
 ## Ticket File Structure
 
-Tickets are stored as markdown files organized in 5 levels:
+Tickets are stored as markdown files organized in 4 levels:
 
 ```
 tickets/
 └── {owner}/                    # 1
     └── {repo}/                 # 2
         └── {category}/         # 3
-            └── {ticket_id}.md  # 4
+            └── {ticket_id}-{slug}.md  # 4
 ```
 
 Example:

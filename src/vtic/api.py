@@ -192,9 +192,9 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         status_code=status.HTTP_204_NO_CONTENT,
         responses={404: {"model": ErrorResponse}},
     )
-    async def delete_ticket(ticket_id: str) -> Response:
+    async def delete_ticket(ticket_id: str, force: bool = False) -> Response:
         ticket_id = _validate_ticket_id(ticket_id)
-        store.delete(ticket_id)
+        store.delete(ticket_id, force=force)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post(

@@ -11,7 +11,6 @@ from vtic.errors import TicketAlreadyExistsError, TicketNotFoundError
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from vtic.storage import TRASH_DIRNAME, TicketStore
 from vtic.utils import ticket_path
-
 from conftest import make_ticket
 
 
@@ -489,6 +488,24 @@ def test_restore_from_trash(tmp_path: Path) -> None:
     assert not any((store.base_dir / TRASH_DIRNAME).rglob("S1-restore-me.md"))
 
 
+def test_restore_nonexistent_ticket_raises(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+
+    with pytest.raises(TicketNotFoundError, match="Ticket C404 not found"):
+        store.restore_from_trash("C404")
+
+
+def test_restore_duplicate_target_raises(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    original = make_ticket("C1", title="Original title", repo="acme/app")
+    store._create(original)
+    store.delete("C1")
+    store._create(make_ticket("C1", title="Original title", repo="acme/app"))
+
+    with pytest.raises(TicketAlreadyExistsError, match="Ticket C1 already exists"):
+        store.restore_from_trash("C1")
+
+
 def test_list_excludes_trash_directory(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     active = make_ticket("C1", title="Active ticket")
@@ -630,3 +647,31 @@ def test_update_changing_repo_moves_file(tmp_path: Path) -> None:
     assert new_path.exists()
     loaded = store.get("C1")
     assert loaded.title == "Moved title"
+
+
+def test_update_with_empty_update_is_noop(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    ticket = make_ticket(
+        "C1",
+        title="No-op update",
+        description="Original description",
+        fix="Original fix",
+        tags=["auth", "api"],
+    )
+    original_path = ticket_path(store.base_dir, ticket)
+    store._create(ticket)
+
+    updated = store.update("C1", TicketUpdate())
+
+    assert updated.id == ticket.id
+    assert updated.title == ticket.title
+    assert updated.description == ticket.description
+    assert updated.fix == ticket.fix
+    assert updated.repo == ticket.repo
+    assert updated.category is ticket.category
+    assert updated.severity is ticket.severity
+    assert updated.status is ticket.status
+    assert updated.file == ticket.file
+    assert updated.tags == ticket.tags
+    assert updated.slug == ticket.slug
+    assert ticket_path(store.base_dir, updated) == original_path

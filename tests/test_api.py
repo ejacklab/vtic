@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncio
@@ -12,11 +11,8 @@ from starlette.testclient import TestClient as StarletteTestClient
 from vtic.api import create_app
 from vtic.models import Category, SearchRequest, Severity, Status, Ticket, TicketCreate
 from vtic.storage import TicketStore
-from vtic.utils import slugify
 
 from conftest import make_ticket
-
-
 
 
 class TestClient(StarletteTestClient):
@@ -48,8 +44,6 @@ class TestClient(StarletteTestClient):
 
     def close(self) -> None:
         return None
-
-
 
 
 @pytest.fixture
@@ -229,6 +223,16 @@ def test_delete_ticket(client: TestClient, store: TicketStore) -> None:
     store._create(make_ticket("C1", title="Delete me"))
 
     response = client.delete("/tickets/C1")
+
+    assert response.status_code == 204
+    with pytest.raises(Exception, match="Ticket C1 not found"):
+        store.get("C1")
+
+
+def test_delete_ticket_force(client: TestClient, store: TicketStore) -> None:
+    store._create(make_ticket("C1", title="Force delete me"))
+
+    response = client.delete("/tickets/C1?force=true")
 
     assert response.status_code == 204
     with pytest.raises(Exception, match="Ticket C1 not found"):

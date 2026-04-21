@@ -8,10 +8,8 @@ import pytest
 from vtic.models import Category, SearchFilters, Severity, Status, Ticket, TicketUpdate
 from vtic.search import TicketSearch, _BuiltinBM25
 from vtic.storage import TicketStore
-from vtic.utils import slugify
 
 from conftest import make_ticket
-
 
 
 @pytest.fixture
@@ -248,6 +246,27 @@ def test_special_characters_in_query(store: TicketStore) -> None:
 
     assert response.total >= 1
     assert response.results[0].id == "S1"
+
+
+def test_search_case_insensitive(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+
+    upper = engine.search("Cors")
+    lower = engine.search("cors")
+
+    assert [result.id for result in upper.results] == [result.id for result in lower.results]
+
+
+def test_search_with_combined_query_and_filters(store: TicketStore) -> None:
+    engine = TicketSearch(store)
+
+    response = engine.search(
+        "analytics",
+        filters=SearchFilters(severity=[Severity.MEDIUM]),
+    )
+
+    assert [result.id for result in response.results] == ["C6", "P3"]
+    assert all(result.severity == Severity.MEDIUM.value for result in response.results)
 
 
 def test_search_with_tokenless_corpus_returns_empty(tmp_path: Path) -> None:
