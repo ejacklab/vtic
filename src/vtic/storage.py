@@ -83,7 +83,11 @@ class TicketStore:
             try:
                 yield
             finally:
-                pass  # lock released on fd close; file persists
+                # Lock released on fd close; remove file to avoid directory clutter.
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _log_activity(
         self,

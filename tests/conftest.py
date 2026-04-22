@@ -11,41 +11,6 @@ from vtic.utils import slugify
 FIXED_TIMESTAMP = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
 
 
-def make_ticket(
-    ticket_id: str,
-    title: str,
-    *,
-    description: str | None = None,
-    repo: str = "owner/repo",
-    category: Category = Category.CODE_QUALITY,
-    severity: Severity = Severity.MEDIUM,
-    status: Status = Status.OPEN,
-    fix: str | None = None,
-    owner: str | None = "owner",
-    file: str | None = None,
-    tags: list[str] | None = None,
-) -> Ticket:
-    """Create a test Ticket with sensible defaults."""
-    return Ticket(
-        id=ticket_id,
-        title=title,
-        description=description,
-        fix=fix,
-        repo=repo,
-        owner=owner,
-        category=category,
-        severity=severity,
-        status=status,
-        file=file,
-        tags=tags or [],
-        created_at=FIXED_TIMESTAMP,
-        updated_at=FIXED_TIMESTAMP,
-        slug=slugify(title),
-    )
-
-
-FIXED_TIMESTAMP = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-
 
 def make_ticket(
     id: str,
@@ -87,9 +52,6 @@ def make_ticket(
         slug=slugify(title),
     )
 
-
-# Re-export slugify so test files that import it from here don't break
-from vtic.utils import slugify  # noqa: E402
 
 
 @pytest.fixture
