@@ -127,6 +127,36 @@ class TestCreate:
         assert "src/auth.py:12-20" in result.output
         assert "auth, backend, token" in result.output
 
+    def test_create_with_due_date(self, tickets_dir: Path) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "create",
+                *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Due date ticket",
+                "--due-date", "2026-12-31",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Due Date" in result.output
+        assert "2026-12-31" in result.output
+
+    def test_create_without_due_date(self, tickets_dir: Path) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "create",
+                *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "No due date",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "C1" in result.output
+
     def test_create_rejects_missing_repo(self, tickets_dir: Path) -> None:
         args = [*_dir_args(tickets_dir), "--title", "No repo"]
         result = runner.invoke(app, ["create", *args])
@@ -407,6 +437,40 @@ class TestList:
         assert "Low security issue" not in result.output
         assert "Critical testing issue" not in result.output
 
+    def test_list_filter_by_due_date(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Due Jan",
+                "--due-date", "2026-01-15",
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Due Jun",
+                "--due-date", "2026-06-15",
+            ],
+        )
+
+        before_result = runner.invoke(
+            app, ["list", *_dir_args(tickets_dir), "--due-before", "2026-06-01"]
+        )
+        assert before_result.exit_code == 0
+        assert "C1" in before_result.output
+        assert "C2" not in before_result.output
+
+        after_result = runner.invoke(
+            app, ["list", *_dir_args(tickets_dir), "--due-after", "2026-06-01"]
+        )
+        assert after_result.exit_code == 0
+        assert "C1" not in after_result.output
+        assert "C2" in after_result.output
+
 
 class TestUpdate:
     def test_update_status(self, tickets_dir: Path) -> None:
@@ -523,6 +587,52 @@ class TestUpdate:
         )
         assert result.exit_code == 0
         assert "Updated title" in result.output
+
+    def test_update_set_due_date(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Set due",
+            ],
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "update", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--due-date", "2026-07-15",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "2026-07-15" in result.output
+
+    def test_update_clear_due_date(self, tickets_dir: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "create", *_dir_args(tickets_dir),
+                "--repo", "owner/repo",
+                "--title", "Clear due",
+                "--due-date", "2026-05-01",
+            ],
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "update", *_dir_args(tickets_dir),
+                "--id", "C1",
+                "--due-date", "none",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Due Date" in result.output
+        assert "2026-05-01" not in result.output
 
 
 class TestDelete:

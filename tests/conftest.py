@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -27,6 +27,7 @@ def make_ticket(
     tags: list[str] | None = None,
     created_at: datetime | None = None,
     updated_at: datetime | None = None,
+    due_date: date | None = None,
 ) -> Ticket:
     """Create a test ticket with sensible defaults.
 
@@ -50,6 +51,7 @@ def make_ticket(
         created_at=ts,
         updated_at=updated_at or ts,
         slug=slugify(title),
+        due_date=due_date,
     )
 
 

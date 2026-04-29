@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -59,6 +59,7 @@ def _print_ticket(ticket: Ticket, title: str) -> None:
             f"[bold]Owner:[/bold] {ticket.owner or '-'}",
             f"[bold]File:[/bold] {ticket.file or '-'}",
             f"[bold]Tags:[/bold] {tags}",
+            f"[bold]Due Date:[/bold] {ticket.due_date.isoformat() if ticket.due_date else '-'}",
             "",
             ticket.description or "",
         ]
@@ -142,6 +143,9 @@ def create(
     fix: str | None = typer.Option(None, "--fix", help="Fix description"),
     file: str | None = typer.Option(None, "--file", help="File reference"),
     tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
+    due_date: str | None = typer.Option(
+        None, "--due-date", help="Due date (YYYY-MM-DD)"
+    ),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Create a ticket."""
@@ -149,6 +153,9 @@ def create(
     try:
         store = _resolve_store(dir)
         derived_owner, _ = parse_repo(repo)
+        parsed_due_date: date | None = None
+        if due_date:
+            parsed_due_date = date.fromisoformat(due_date)
         ticket = store.create_ticket(
             title=title,
             repo=repo,
@@ -161,6 +168,7 @@ def create(
             file=file,
             tags=tags.split(",") if tags else [],
             slug=slugify(title),
+            due_date=parsed_due_date,
         )
         _print_ticket(ticket, "Created Ticket")
     except (ValueError, PydanticValidationError) as exc:
@@ -215,10 +223,16 @@ def list_tickets(
     updated_before: str | None = typer.Option(
         None, "--updated-before", help="Filter by updated_at <= timestamp"
     ),
+    due_before: str | None = typer.Option(
+        None, "--due-before", help="Filter by due_date <= YYYY-MM-DD"
+    ),
+    due_after: str | None = typer.Option(
+        None, "--due-after", help="Filter by due_date >= YYYY-MM-DD"
+    ),
     sort: str | None = typer.Option(
         None,
         "--sort",
-        help="Sort by severity, status, created_at, updated_at, title",
+        help="Sort by severity, status, created_at, updated_at, due_date, title",
     ),
     format: OutputFormat = typer.Option(
         OutputFormat.TABLE, "--format", help="Output format"
@@ -239,6 +253,8 @@ def list_tickets(
             created_before=_parse_datetime_option(created_before),
             updated_after=_parse_datetime_option(updated_after),
             updated_before=_parse_datetime_option(updated_before),
+            due_before=date.fromisoformat(due_before) if due_before else None,
+            due_after=date.fromisoformat(due_after) if due_after else None,
         )
         tickets = _resolve_store(dir).list(filters, sort_by=sort)
 
@@ -337,6 +353,9 @@ def update(
         None, "--description", help="New description"
     ),
     assignee: str | None = typer.Option(None, "--assignee", help="Assign ticket to agent"),
+    due_date: str | None = typer.Option(
+        None, "--due-date", help="Due date (YYYY-MM-DD, or 'none' to clear)"
+    ),
     dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
 ) -> None:
     """Update a ticket."""
@@ -363,6 +382,11 @@ def update(
             update_data["description"] = description
         if assignee is not None:
             update_data["assignee"] = assignee
+        if due_date is not None:
+            if due_date.lower() == "none":
+                update_data["due_date"] = None
+            else:
+                update_data["due_date"] = date.fromisoformat(due_date)
 
         updates = TicketUpdate(**update_data)
         ticket = _resolve_store(dir).update(id, updates)

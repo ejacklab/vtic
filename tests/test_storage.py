@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from threading import Barrier
 from concurrent.futures import ThreadPoolExecutor
@@ -59,6 +59,17 @@ def test_get_returns_ticket(tmp_path: Path) -> None:
     loaded = store.get("S1")
 
     assert loaded == created
+
+
+def test_load_ticket_without_due_date_is_none(tmp_path: Path) -> None:
+    """Loading a ticket file without due_date results in None."""
+    store = TicketStore(tmp_path / "tickets")
+    ticket = make_ticket("C1", title="No due date")
+    store._create(ticket)
+
+    loaded = store.get("C1")
+
+    assert loaded.due_date is None
 
 
 def test_get_not_found(tmp_path: Path) -> None:
@@ -145,6 +156,30 @@ def test_create_ticket_is_atomic_under_concurrency(tmp_path: Path) -> None:
     assert sorted(ids) == [f"C{i}" for i in range(1, 9)]
     assert len({*ids}) == 8
     assert len(list((tmp_path / "tickets").rglob("*.md"))) == 8
+
+
+def test_create_ticket_with_due_date(tmp_path: Path) -> None:
+    """create_ticket stores due_date in frontmatter."""
+    store = TicketStore(tmp_path / "tickets")
+
+    ticket = store.create_ticket(
+        title="Due date ticket",
+        repo="owner/repo",
+        owner="owner",
+        category=Category.CODE_QUALITY,
+        severity=Severity.MEDIUM,
+        status=Status.OPEN,
+        description=None,
+        fix=None,
+        file=None,
+        tags=[],
+        slug="due-date-ticket",
+        due_date=date(2026, 6, 15),
+    )
+
+    assert ticket.due_date == date(2026, 6, 15)
+    content = ticket_path(store.base_dir, ticket).read_text(encoding="utf-8")
+    assert "due_date: '2026-06-15'" in content or "due_date: 2026-06-15" in content
 
 
 def test_list_empty(tmp_path: Path) -> None:
@@ -287,6 +322,32 @@ def test_update_can_clear_nullable_fields(tmp_path: Path) -> None:
     assert updated.file is None
     assert "Old description" not in content
     assert "Old fix" not in content
+
+
+def test_update_ticket_due_date(tmp_path: Path) -> None:
+    """update can set due_date on a ticket."""
+    store = TicketStore(tmp_path / "tickets")
+    ticket = make_ticket("C1", title="Update due")
+    store._create(ticket)
+
+    updated = store.update("C1", TicketUpdate(due_date=date(2026, 8, 1)))
+
+    assert updated.due_date == date(2026, 8, 1)
+    content = ticket_path(store.base_dir, updated).read_text(encoding="utf-8")
+    assert "due_date:" in content
+
+
+def test_update_ticket_clear_due_date(tmp_path: Path) -> None:
+    """update can clear due_date by setting it to None."""
+    store = TicketStore(tmp_path / "tickets")
+    ticket = make_ticket("C1", title="Clear due", due_date=date(2026, 5, 1))
+    store._create(ticket)
+
+    updated = store.update("C1", TicketUpdate(due_date=None))
+
+    assert updated.due_date is None
+    content = ticket_path(store.base_dir, updated).read_text(encoding="utf-8")
+    assert "due_date:" not in content
 
 
 def test_description_preserves_literal_fix_heading(tmp_path: Path) -> None:
@@ -573,6 +634,17 @@ def test_list_supports_descending_created_at_sort(tmp_path: Path) -> None:
     assert [ticket.id for ticket in results] == ["C2", "C1"]
 
 
+def test_list_supports_sort_by_due_date(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets")
+    store._create(make_ticket("C1", title="Due Jun", due_date=date(2026, 6, 15)))
+    store._create(make_ticket("C2", title="No due date"))
+    store._create(make_ticket("C3", title="Due Jan", due_date=date(2026, 1, 15)))
+
+    results = store.list(sort_by="due_date")
+
+    assert [ticket.id for ticket in results] == ["C3", "C1", "C2"]
+
+
 def test_list_with_date_filters(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets")
     older = make_ticket("C1", title="Old ticket")
@@ -611,6 +683,41 @@ def test_list_with_date_filters(tmp_path: Path) -> None:
 
     # updated_after
     results = store.list(SearchFilters(updated_after=datetime(2026, 5, 1, 0, 0, 0, tzinfo=UTC)))
+    assert [t.id for t in results] == ["C2"]
+
+
+def test_list_filters_by_due_date(tmp_path: Path) -> None:
+    """list filters tickets by due_before/due_after."""
+    store = TicketStore(tmp_path / "tickets")
+    store._create(make_ticket("C1", title="Due Jan", due_date=date(2026, 1, 15)))
+    store._create(make_ticket("C2", title="Due Jun", due_date=date(2026, 6, 15)))
+    store._create(make_ticket("C3", title="Due Dec", due_date=date(2026, 12, 15)))
+
+    results = store.list(SearchFilters(due_after=date(2026, 6, 1)))
+    assert sorted([t.id for t in results]) == ["C2", "C3"]
+
+    results = store.list(SearchFilters(due_before=date(2026, 6, 1)))
+    assert sorted([t.id for t in results]) == ["C1"]
+
+    results = store.list(
+        SearchFilters(
+            due_after=date(2026, 3, 1),
+            due_before=date(2026, 9, 1),
+        )
+    )
+    assert [t.id for t in results] == ["C2"]
+
+
+def test_list_filters_tickets_without_due_date_excluded_from_range(
+    tmp_path: Path,
+) -> None:
+    """Tickets with due_date=None are excluded from due_after/due_before filters."""
+    store = TicketStore(tmp_path / "tickets")
+    store._create(make_ticket("C1", title="No due date"))
+    store._create(make_ticket("C2", title="Has due", due_date=date(2026, 6, 1)))
+
+    results = store.list(SearchFilters(due_after=date(2026, 1, 1)))
+
     assert [t.id for t in results] == ["C2"]
 
 

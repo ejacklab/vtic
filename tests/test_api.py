@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import asyncio
@@ -86,6 +87,20 @@ def test_create_ticket(client: TestClient) -> None:
     assert body["slug"] == "cors-wildcard-in-production"
 
 
+def test_create_ticket_with_due_date(client: TestClient) -> None:
+    response = client.post(
+        "/tickets",
+        json={
+            "title": "Due date ticket",
+            "repo": "owner/repo",
+            "due_date": "2026-09-15",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["due_date"] == "2026-09-15"
+
+
 def test_get_ticket(client: TestClient, store: TicketStore) -> None:
     store._create(make_ticket("S1", title="CORS wildcard", category=Category.SECURITY))
 
@@ -131,6 +146,18 @@ def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
     body = response.json()
     assert body["total"] == 1
     assert [ticket["id"] for ticket in body["data"]] == ["S1"]
+
+
+def test_list_tickets_with_due_date_filter(client: TestClient, store: TicketStore) -> None:
+    store._create(make_ticket("C1", title="Due Jan", due_date=date(2026, 1, 15)))
+    store._create(make_ticket("C2", title="Due Dec", due_date=date(2026, 12, 15)))
+
+    response = client.get("/tickets", params={"due_after": "2026-06-01"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["data"][0]["id"] == "C2"
 
 
 def test_list_with_owner_tags_and_date_filters(
@@ -217,6 +244,15 @@ def test_update_ticket(client: TestClient, store: TicketStore) -> None:
     assert body["severity"] == "high"
     assert body["status"] == "in_progress"
     assert body["description"] == "Updated details"
+
+
+def test_update_ticket_due_date(client: TestClient, store: TicketStore) -> None:
+    store._create(make_ticket("C1", title="Update due"))
+
+    response = client.patch("/tickets/C1", json={"due_date": "2026-08-01"})
+
+    assert response.status_code == 200
+    assert response.json()["due_date"] == "2026-08-01"
 
 
 def test_delete_ticket(client: TestClient, store: TicketStore) -> None:

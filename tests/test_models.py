@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import get_args
 
@@ -91,6 +91,35 @@ def test_ticket_defaults_and_validators(sample_timestamp: datetime) -> None:
     assert ticket.tags == ["auth", "refactor"]
 
 
+def test_ticket_with_due_date(sample_timestamp: datetime) -> None:
+    """Ticket accepts optional due_date."""
+    ticket = Ticket(
+        id="C1",
+        title="With due date",
+        repo="owner/repo",
+        created_at=sample_timestamp,
+        updated_at=sample_timestamp,
+        slug="with-due-date",
+        due_date=date(2026, 6, 1),
+    )
+
+    assert ticket.due_date == date(2026, 6, 1)
+
+
+def test_ticket_without_due_date_is_none(sample_timestamp: datetime) -> None:
+    """Ticket due_date defaults to None for backward compatibility."""
+    ticket = Ticket(
+        id="C1",
+        title="No due date",
+        repo="owner/repo",
+        created_at=sample_timestamp,
+        updated_at=sample_timestamp,
+        slug="no-due-date",
+    )
+
+    assert ticket.due_date is None
+
+
 def test_ticket_normalizes_newlines_in_title_and_owner(sample_timestamp: datetime) -> None:
     ticket = Ticket(
         id="C8",
@@ -170,6 +199,24 @@ def test_ticket_create_validation_defaults_and_repo_normalization() -> None:
     assert payload.tags == ["upper", "duplicate"]
 
 
+def test_ticket_create_with_due_date() -> None:
+    """TicketCreate accepts due_date."""
+    payload = TicketCreate(
+        title="Has due date",
+        repo="owner/repo",
+        due_date=date(2026, 12, 31),
+    )
+
+    assert payload.due_date == date(2026, 12, 31)
+
+
+def test_ticket_create_without_due_date() -> None:
+    """TicketCreate without due_date defaults to None."""
+    payload = TicketCreate(title="No due date", repo="owner/repo")
+
+    assert payload.due_date is None
+
+
 def test_ticket_create_with_all_explicit_fields() -> None:
     payload = TicketCreate(
         title="Explicit auth ticket",
@@ -242,6 +289,22 @@ def test_ticket_update_validates_repo_unchanged() -> None:
         TicketUpdate(repo="owner/other")
 
 
+def test_ticket_update_set_due_date() -> None:
+    """TicketUpdate can set due_date."""
+    update = TicketUpdate(due_date=date(2026, 7, 15))
+    data = update.model_dump(exclude_unset=True)
+
+    assert data["due_date"] == date(2026, 7, 15)
+
+
+def test_ticket_update_clear_due_date() -> None:
+    """TicketUpdate can clear due_date by setting None."""
+    update = TicketUpdate(due_date=None)
+    data = update.model_dump(exclude_unset=True)
+
+    assert data["due_date"] is None
+
+
 def test_ticket_create_forbids_extra_fields() -> None:
     with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
         TicketCreate(title="Valid", repo="owner/repo", unexpected="value")
@@ -291,6 +354,39 @@ def test_ticket_response_from_ticket(sample_ticket: Ticket) -> None:
     assert response.is_terminal is False
     assert response.filename == sample_ticket.filename
     assert response.filepath == sample_ticket.filepath
+
+
+def test_ticket_response_includes_due_date(sample_timestamp: datetime) -> None:
+    """TicketResponse.from_ticket includes due_date."""
+    ticket = Ticket(
+        id="C1",
+        title="Response test",
+        repo="owner/repo",
+        created_at=sample_timestamp,
+        updated_at=sample_timestamp,
+        slug="response-test",
+        due_date=date(2026, 10, 1),
+    )
+
+    response = TicketResponse.from_ticket(ticket)
+
+    assert response.due_date == "2026-10-01"
+
+
+def test_ticket_response_none_due_date(sample_timestamp: datetime) -> None:
+    """TicketResponse.from_ticket handles None due_date."""
+    ticket = Ticket(
+        id="C1",
+        title="No due",
+        repo="owner/repo",
+        created_at=sample_timestamp,
+        updated_at=sample_timestamp,
+        slug="no-due",
+    )
+
+    response = TicketResponse.from_ticket(ticket)
+
+    assert response.due_date is None
 
 
 def test_ticket_properties(sample_ticket: Ticket, tmp_path: Path) -> None:
@@ -438,6 +534,17 @@ def test_search_filters_normalize_repo_and_tags() -> None:
     filters_empty = SearchFilters(repo=["  ", ""], tags=["", "  "])
     assert filters_empty.repo is None
     assert filters_empty.tags == []
+
+
+def test_search_filters_due_date_range() -> None:
+    """SearchFilters accepts due_before/due_after."""
+    filters = SearchFilters(
+        due_after=date(2026, 1, 1),
+        due_before=date(2026, 12, 31),
+    )
+
+    assert filters.due_after == date(2026, 1, 1)
+    assert filters.due_before == date(2026, 12, 31)
 
 
 def test_ticket_update_none_fields_preserve_existing() -> None:

@@ -8,7 +8,7 @@ import logging
 import os
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +135,7 @@ class TicketStore:
         file: str | None,
         tags: list[str],
         slug: str,
+        due_date: date | None = None,
     ) -> Ticket:
         """Create a ticket with locked, atomic ID allocation.
 
@@ -161,6 +162,7 @@ class TicketStore:
                 agent_id=self._agent_id,
                 created_by=self._agent_id,
                 version=1,
+                due_date=due_date,
             )
             self._write_ticket(ticket, ticket_path(self.base_dir, ticket))
             self._log_activity("created", ticket.id)
@@ -401,6 +403,9 @@ class TicketStore:
             if value is None:
                 raise ValueError(f"Missing required field: {field}")
             data[field] = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        due_date_value = data.get("due_date")
+        if due_date_value is not None:
+            data["due_date"] = date.fromisoformat(str(due_date_value))
 
         return data
 
@@ -465,6 +470,8 @@ class TicketStore:
             frontmatter["created_by"] = ticket.created_by
         if ticket.assignee:
             frontmatter["assignee"] = ticket.assignee
+        if ticket.due_date:
+            frontmatter["due_date"] = ticket.due_date.isoformat()
         lines = ["---", yaml.safe_dump(frontmatter, sort_keys=False).strip(), "---", ""]
         lines.append(DESCRIPTION_DELIMITER)
         if ticket.description:
@@ -524,6 +531,14 @@ class TicketStore:
             return False
         if filters.assignee is not None and ticket.assignee != filters.assignee:
             return False
+        if filters.due_after is not None and (
+            ticket.due_date is None or ticket.due_date < filters.due_after
+        ):
+            return False
+        if filters.due_before is not None and (
+            ticket.due_date is None or ticket.due_date > filters.due_before
+        ):
+            return False
         return True
 
     def _iter_ticket_paths(self, *, include_trash: bool = False, trash_only: bool = False) -> list[Path]:
@@ -575,6 +590,11 @@ class TicketStore:
             return lambda ticket: (ticket.created_at, self._ticket_id_sort_key(ticket))
         if field == "updated_at":
             return lambda ticket: (ticket.updated_at, self._ticket_id_sort_key(ticket))
+        if field == "due_date":
+            return lambda ticket: (
+                ticket.due_date or date.max,
+                self._ticket_id_sort_key(ticket),
+            )
         if field == "title":
             return lambda ticket: (ticket.title.lower(), self._ticket_id_sort_key(ticket))
         raise ValueError(f"Unsupported sort field: {field}")

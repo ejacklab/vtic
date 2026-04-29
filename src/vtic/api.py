@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, Response, status
@@ -123,6 +123,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
             file=payload.file,
             tags=payload.tags,
             slug=slugify(payload.title),
+            due_date=payload.due_date,
         )
         return TicketResponse.from_ticket(ticket)
 
@@ -143,6 +144,8 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         created_before: datetime | None = Query(None),
         updated_after: datetime | None = Query(None),
         updated_before: datetime | None = Query(None),
+        due_before: date | None = Query(None),
+        due_after: date | None = Query(None),
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
     ) -> PaginatedResponse[TicketResponse]:
@@ -158,6 +161,8 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
             created_before=created_before,
             updated_after=updated_after,
             updated_before=updated_before,
+            due_before=due_before,
+            due_after=due_after,
         )
         tickets = store.list(filters)
         page = tickets[offset : offset + limit]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 from enum import StrEnum
 from typing import Generic, Literal, Self, TypeVar
 
@@ -138,6 +138,7 @@ class Ticket(VticBaseModel):
         description="Agent that created this ticket")
     version: int = Field(default=1, ge=1,
         description="Optimistic concurrency version counter")
+    due_date: date | None = Field(default=None, description="Optional due date for the ticket")
     assignee: str | None = Field(default=None, max_length=100,
         description="Agent currently assigned to work on this ticket")
 
@@ -239,6 +240,7 @@ class TicketCreate(VticBaseModel):
     status: Status = Field(default=Status.OPEN)
     file: str | None = Field(default=None, max_length=500)
     tags: list[str] = Field(default_factory=list, description="Searchable tags (max 50 items)")
+    due_date: date | None = Field(default=None, description="Optional due date")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -292,6 +294,7 @@ class TicketUpdate(VticBaseModel):
         description="Expected current version for optimistic concurrency check")
     assignee: str | None = Field(default=None, max_length=100,
         description="Agent to assign this ticket to (null clears assignment)")
+    due_date: date | None = Field(default=None, description="Optional due date (null clears it)")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -351,6 +354,7 @@ class TicketResponse(VticBaseModel):
     created_by: str | None = None
     version: int = 1
     assignee: str | None = None
+    due_date: str | None = None
 
     @classmethod
     def from_ticket(cls, ticket: Ticket) -> "TicketResponse":
@@ -376,6 +380,7 @@ class TicketResponse(VticBaseModel):
             created_by=ticket.created_by,
             version=ticket.version,
             assignee=ticket.assignee,
+            due_date=ticket.due_date.isoformat() if ticket.due_date else None,
         )
 
 
@@ -397,6 +402,8 @@ class SearchFilters(VticBaseModel):
     owner: str | None = Field(default=None)
     assignee: str | None = Field(default=None,
         description="Filter by assigned agent")
+    due_before: date | None = Field(default=None, description="Filter by due_date <= value")
+    due_after: date | None = Field(default=None, description="Filter by due_date >= value")
 
     @field_validator("repo")
     @classmethod
