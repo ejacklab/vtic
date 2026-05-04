@@ -38,6 +38,18 @@ def isoformat_z(dt: datetime) -> str:
     return dt.isoformat().replace("+00:00", "Z")
 
 
+_TICKET_ID_RE = re.compile(r"^([A-Z]+)-(\d+)$")
+
+
+def parse_ticket_id(ticket_id: str) -> tuple[str, int]:
+    """Parse a ticket ID like 'BREW-01' into ('BREW', 1)."""
+
+    match = _TICKET_ID_RE.match(ticket_id)
+    if not match:
+        raise ValueError(f"Invalid ticket ID format: {ticket_id}")
+    return match.group(1), int(match.group(2))
+
+
 def parse_repo(repo: str) -> tuple[str, str]:
     """Parse an owner/repo string into its components."""
 
@@ -69,7 +81,7 @@ def ticket_path(root: Path, ticket: Ticket) -> Path:
 
     owner, repo_name = parse_repo(ticket.repo)
     base_dir = root.resolve()
-    resolved_path = (root / owner / repo_name / ticket.category.value / ticket.filename).resolve()
+    resolved_path = (root / owner / repo_name / ticket.category / ticket.filename).resolve()
     if not resolved_path.is_relative_to(base_dir):
         raise ValueError(f"Ticket path escapes base directory: {resolved_path}")
     return resolved_path

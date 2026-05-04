@@ -15,7 +15,6 @@ from vtic import __version__
 from vtic.config import load_config
 from vtic.errors import VticError
 from vtic.models import (
-    Category,
     ErrorDetail,
     ErrorResponse,
     HealthResponse,
@@ -34,7 +33,7 @@ from vtic.storage import TicketStore
 from vtic.utils import parse_repo, slugify, utc_now
 
 
-_TICKET_ID_PATTERN = re.compile(r"^[A-Z]\d+$")
+_TICKET_ID_PATTERN = re.compile(r"^[A-Z]+-\d+$")
 
 
 def _validate_ticket_id(ticket_id: str) -> str:
@@ -78,8 +77,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
 
     config = load_config()
     base_dir = Path(tickets_dir) if tickets_dir is not None else config.effective_tickets_dir
-    agent_id = config.shared.agent_id if config.shared.enabled else None
-    store = TicketStore(base_dir, agent_id=agent_id)
+    store = TicketStore(base_dir)
     search = TicketSearch(store)
 
     app = FastAPI(title="vtic API", version=__version__)
@@ -124,6 +122,7 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
             tags=payload.tags,
             slug=slugify(payload.title),
             due_date=payload.due_date,
+            start_date=payload.start_date,
         )
         return TicketResponse.from_ticket(ticket)
 
@@ -135,10 +134,9 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
     async def list_tickets(
         severity: Severity | None = Query(None),
         status_value: Status | None = Query(None, alias="status"),
-        category: Category | None = Query(None),
+        category: str | None = Query(None),
         repo: str | None = Query(None),
         owner: str | None = Query(None),
-        assignee: str | None = Query(None),
         tags: list[str] | None = Query(None),
         created_after: datetime | None = Query(None),
         created_before: datetime | None = Query(None),
@@ -146,6 +144,8 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
         updated_before: datetime | None = Query(None),
         due_before: date | None = Query(None),
         due_after: date | None = Query(None),
+        start_before: date | None = Query(None),
+        start_after: date | None = Query(None),
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
     ) -> PaginatedResponse[TicketResponse]:
@@ -155,7 +155,6 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
             category=[category] if category else None,
             repo=[repo] if repo else None,
             owner=owner,
-            assignee=assignee,
             tags=tags,
             created_after=created_after,
             created_before=created_before,
@@ -163,6 +162,8 @@ def create_app(tickets_dir: str | None = None) -> FastAPI:
             updated_before=updated_before,
             due_before=due_before,
             due_after=due_after,
+            start_before=start_before,
+            start_after=start_after,
         )
         tickets = store.list(filters)
         page = tickets[offset : offset + limit]

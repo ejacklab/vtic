@@ -46,9 +46,8 @@ class TestCreate:
             *_dir_args(tickets_dir),
             "--repo", overrides.get("repo", "owner/repo"),
             "--title", overrides.get("title", "Test ticket"),
+            "--category", overrides.get("category", "code_quality"),
         ]
-        if "category" in overrides:
-            args += ["--category", overrides["category"]]
         if "severity" in overrides:
             args += ["--severity", overrides["severity"]]
         if "description" in overrides:
@@ -62,7 +61,7 @@ class TestCreate:
         result = self._create_ticket(tickets_dir)
         assert result.exit_code == 0
         assert "Created Ticket" in result.output
-        assert "C1" in result.output
+        assert "CODE-1" in result.output
         assert "Test ticket" in result.output
 
     def test_create_with_category_security(self, tickets_dir: Path) -> None:
@@ -73,14 +72,14 @@ class TestCreate:
             title="SQL injection",
         )
         assert result.exit_code == 0
-        assert "S1" in result.output
+        assert "SEC-1" in result.output
         assert "security" in result.output
 
     def test_create_auto_increments_id(self, tickets_dir: Path) -> None:
         self._create_ticket(tickets_dir, title="First")
         result = self._create_ticket(tickets_dir, title="Second")
         assert result.exit_code == 0
-        assert "C2" in result.output
+        assert "CODE-2" in result.output
 
     def test_create_with_file_reference(self, tickets_dir: Path) -> None:
         result = self._create_ticket(
@@ -134,6 +133,7 @@ class TestCreate:
                 "create",
                 *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Due date ticket",
                 "--due-date", "2026-12-31",
             ],
@@ -150,12 +150,13 @@ class TestCreate:
                 "create",
                 *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "No due date",
             ],
         )
 
         assert result.exit_code == 0
-        assert "C1" in result.output
+        assert "CODE-1" in result.output
 
     def test_create_rejects_missing_repo(self, tickets_dir: Path) -> None:
         args = [*_dir_args(tickets_dir), "--title", "No repo"]
@@ -199,13 +200,14 @@ class TestGet:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Get me",
                 "--severity", "high",
             ],
         )
         assert create_result.exit_code == 0
 
-        result = runner.invoke(app, ["get", "C1", *_dir_args(tickets_dir)])
+        result = runner.invoke(app, ["get", "CODE-1", *_dir_args(tickets_dir)])
         assert result.exit_code == 0
         assert "Get me" in result.output
         assert "high" in result.output
@@ -221,11 +223,12 @@ class TestGet:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "JSON ticket",
             ],
         )
         result = runner.invoke(
-            app, ["get", "C1", *_dir_args(tickets_dir), "--format", "json"]
+            app, ["get", "CODE-1", *_dir_args(tickets_dir), "--format", "json"]
         )
         assert result.exit_code == 0
         # Should be valid JSON
@@ -243,9 +246,9 @@ class TestGet:
                 "--title", "CORS issue",
             ],
         )
-        result = runner.invoke(app, ["get", "S1", *_dir_args(tickets_dir)])
+        result = runner.invoke(app, ["get", "SEC-1", *_dir_args(tickets_dir)])
         assert result.exit_code == 0
-        assert "S1" in result.output
+        assert "SEC-1" in result.output
         assert "CORS issue" in result.output
 
 
@@ -260,6 +263,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "First ticket",
             ],
         )
@@ -268,13 +272,14 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Second ticket",
             ],
         )
         result = runner.invoke(app, ["list", *_dir_args(tickets_dir)])
         assert result.exit_code == 0
-        assert "C1" in result.output
-        assert "C2" in result.output
+        assert "CODE-1" in result.output
+        assert "CODE-2" in result.output
 
     def test_list_filter_by_repo(self, tickets_dir: Path) -> None:
         runner.invoke(
@@ -282,6 +287,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "orgA/repo1",
+                "--category", "code_quality",
                 "--title", "Ticket A",
             ],
         )
@@ -290,6 +296,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "orgB/repo2",
+                "--category", "code_quality",
                 "--title", "Ticket B",
             ],
         )
@@ -297,8 +304,8 @@ class TestList:
             app, ["list", *_dir_args(tickets_dir), "--repo", "orga/repo1"]
         )
         assert result.exit_code == 0
-        assert "C1" in result.output
-        assert "C2" not in result.output
+        assert "CODE-1" in result.output
+        assert "CODE-2" not in result.output
 
     def test_list_filter_by_category(self, tickets_dir: Path) -> None:
         runner.invoke(
@@ -323,7 +330,7 @@ class TestList:
             app, ["list", *_dir_args(tickets_dir), "--category", "security"]
         )
         assert result.exit_code == 0
-        assert "S1" in result.output
+        assert "SEC-1" in result.output
         assert "T1" not in result.output
 
     def test_list_filter_by_severity(self, tickets_dir: Path) -> None:
@@ -332,6 +339,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--severity", "critical",
                 "--title", "Critical issue",
             ],
@@ -341,6 +349,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--severity", "low",
                 "--title", "Low issue",
             ],
@@ -349,8 +358,8 @@ class TestList:
             app, ["list", *_dir_args(tickets_dir), "--severity", "critical"]
         )
         assert result.exit_code == 0
-        assert "C1" in result.output
-        assert "C2" not in result.output
+        assert "CODE-1" in result.output
+        assert "CODE-2" not in result.output
 
     def test_list_filter_by_status(self, tickets_dir: Path) -> None:
         runner.invoke(
@@ -358,6 +367,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Open ticket",
             ],
         )
@@ -365,13 +375,13 @@ class TestList:
             app, ["list", *_dir_args(tickets_dir), "--status", "open"]
         )
         assert result.exit_code == 0
-        assert "C1" in result.output
+        assert "CODE-1" in result.output
 
         result_closed = runner.invoke(
-            app, ["list", *_dir_args(tickets_dir), "--status", "closed"]
+            app, ["list", *_dir_args(tickets_dir), "--status", "done"]
         )
         assert result_closed.exit_code == 0
-        assert "C1" not in result_closed.output
+        assert "CODE-1" not in result_closed.output
 
     def test_list_json_format(self, tickets_dir: Path) -> None:
         runner.invoke(
@@ -379,6 +389,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "JSON list",
             ],
         )
@@ -443,6 +454,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Due Jan",
                 "--due-date", "2026-01-15",
             ],
@@ -452,6 +464,7 @@ class TestList:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Due Jun",
                 "--due-date", "2026-06-15",
             ],
@@ -461,15 +474,15 @@ class TestList:
             app, ["list", *_dir_args(tickets_dir), "--due-before", "2026-06-01"]
         )
         assert before_result.exit_code == 0
-        assert "C1" in before_result.output
-        assert "C2" not in before_result.output
+        assert "CODE-1" in before_result.output
+        assert "CODE-2" not in before_result.output
 
         after_result = runner.invoke(
             app, ["list", *_dir_args(tickets_dir), "--due-after", "2026-06-01"]
         )
         assert after_result.exit_code == 0
-        assert "C1" not in after_result.output
-        assert "C2" in after_result.output
+        assert "CODE-1" not in after_result.output
+        assert "CODE-2" in after_result.output
 
 
 class TestUpdate:
@@ -479,6 +492,7 @@ class TestUpdate:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "To update",
             ],
         )
@@ -486,12 +500,12 @@ class TestUpdate:
             app,
             [
                 "update", *_dir_args(tickets_dir),
-                "--id", "C1",
-                "--status", "in_progress",
+                "--id", "CODE-1",
+                "--status", "active",
             ],
         )
         assert result.exit_code == 0
-        assert "in_progress" in result.output
+        assert "active" in result.output
 
     def test_update_severity(self, tickets_dir: Path) -> None:
         runner.invoke(
@@ -499,6 +513,7 @@ class TestUpdate:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Severity change",
                 "--severity", "low",
             ],
@@ -507,7 +522,7 @@ class TestUpdate:
             app,
             [
                 "update", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
                 "--severity", "critical",
             ],
         )
@@ -520,6 +535,7 @@ class TestUpdate:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Update desc",
             ],
         )
@@ -527,7 +543,7 @@ class TestUpdate:
             app,
             [
                 "update", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
                 "--description", "New description content",
             ],
         )
@@ -540,7 +556,7 @@ class TestUpdate:
             [
                 "update", *_dir_args(tickets_dir),
                 "--id", "X99",
-                "--status", "closed",
+                "--status", "done",
             ],
         )
         assert result.exit_code != 0
@@ -551,6 +567,7 @@ class TestUpdate:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Multi update",
             ],
         )
@@ -558,14 +575,14 @@ class TestUpdate:
             app,
             [
                 "update", *_dir_args(tickets_dir),
-                "--id", "C1",
-                "--status", "fixed",
+                "--id", "CODE-1",
+                "--status", "done",
                 "--severity", "critical",
                 "--fix", "Applied the fix",
             ],
         )
         assert result.exit_code == 0
-        assert "fixed" in result.output
+        assert "done" in result.output
         assert "critical" in result.output
 
     def test_update_title_via_cli(self, tickets_dir: Path) -> None:
@@ -574,6 +591,7 @@ class TestUpdate:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Old title",
             ],
         )
@@ -581,7 +599,7 @@ class TestUpdate:
             app,
             [
                 "update", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
                 "--title", "Updated title",
             ],
         )
@@ -594,6 +612,7 @@ class TestUpdate:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Set due",
             ],
         )
@@ -602,7 +621,7 @@ class TestUpdate:
             app,
             [
                 "update", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
                 "--due-date", "2026-07-15",
             ],
         )
@@ -616,6 +635,7 @@ class TestUpdate:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Clear due",
                 "--due-date", "2026-05-01",
             ],
@@ -625,7 +645,7 @@ class TestUpdate:
             app,
             [
                 "update", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
                 "--due-date", "none",
             ],
         )
@@ -642,6 +662,7 @@ class TestDelete:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "To delete",
             ],
         )
@@ -649,7 +670,7 @@ class TestDelete:
             app,
             [
                 "delete", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
                 "--yes",
             ],
         )
@@ -662,6 +683,7 @@ class TestDelete:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Confirm delete",
             ],
         )
@@ -669,7 +691,7 @@ class TestDelete:
             app,
             [
                 "delete", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
             ],
             input="y\n",
         )
@@ -682,6 +704,7 @@ class TestDelete:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Cancel delete",
             ],
         )
@@ -689,7 +712,7 @@ class TestDelete:
             app,
             [
                 "delete", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
             ],
             input="n\n",
         )
@@ -713,6 +736,7 @@ class TestDelete:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Force delete",
             ],
         )
@@ -720,7 +744,7 @@ class TestDelete:
             app,
             [
                 "delete", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
                 "--yes",
                 "--force",
             ],
@@ -734,6 +758,7 @@ class TestDelete:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Soft delete",
             ],
         )
@@ -741,7 +766,7 @@ class TestDelete:
             app,
             [
                 "delete", *_dir_args(tickets_dir),
-                "--id", "C1",
+                "--id", "CODE-1",
                 "--yes",
             ],
         )
@@ -759,6 +784,7 @@ class TestSearch:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Auth middleware issue",
             ],
         )
@@ -767,6 +793,7 @@ class TestSearch:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Database cleanup",
             ],
         )
@@ -783,6 +810,7 @@ class TestSearch:
             [
                 "create", *_dir_args(tickets_dir),
                 "--repo", "owner/repo",
+                "--category", "code_quality",
                 "--title", "Keyword auth result",
             ],
         )

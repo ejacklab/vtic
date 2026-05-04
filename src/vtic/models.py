@@ -25,58 +25,13 @@ class Status(StrEnum):
     """Ticket lifecycle statuses."""
 
     OPEN = "open"
-    IN_PROGRESS = "in_progress"
-    BLOCKED = "blocked"
-    FIXED = "fixed"
-    WONT_FIX = "wont_fix"
-    CLOSED = "closed"
-
-
-class Category(StrEnum):
-    """Ticket categorization for organization and routing."""
-
-    SECURITY = "security"
-    AUTH = "auth"
-    CODE_QUALITY = "code_quality"
-    PERFORMANCE = "performance"
-    FRONTEND = "frontend"
-    TESTING = "testing"
-    DOCUMENTATION = "documentation"
-    INFRASTRUCTURE = "infrastructure"
-    CONFIGURATION = "configuration"
-    API = "api"
-    DATA = "data"
-    UI = "ui"
-    DEPENDENCIES = "dependencies"
-    BUILD = "build"
-    OTHER = "other"
+    ACTIVE = "active"
+    DONE = "done"
+    CANCELLED = "cancelled"
 
 
 SeverityLiteral = Literal["critical", "high", "medium", "low"]
-StatusLiteral = Literal["open", "in_progress", "blocked", "fixed", "wont_fix", "closed"]
-CategoryLiteral = Literal[
-    "security",
-    "auth",
-    "code_quality",
-    "performance",
-    "frontend",
-    "testing",
-    "documentation",
-    "infrastructure",
-    "configuration",
-    "api",
-    "data",
-    "ui",
-    "dependencies",
-    "build",
-    "other",
-]
-
-from .constants import CATEGORY_PREFIXES as CATEGORY_PREFIXES_RAW
-
-CATEGORY_PREFIXES: dict[Category, str] = {
-    Category(category_name): prefix for category_name, prefix in CATEGORY_PREFIXES_RAW.items()
-}
+StatusLiteral = Literal["open", "active", "done", "cancelled"]
 
 
 class VticBaseModel(BaseModel):
@@ -97,8 +52,8 @@ class Ticket(VticBaseModel):
         ...,
         min_length=1,
         max_length=20,
-        pattern=r"^[A-Z]\d+$",
-        description="Unique ticket ID (e.g., C1, S2, A3)",
+        pattern=r"^[A-Z]+-\d+$",
+        description="Unique ticket ID (e.g., BREW-01, CODE-03)",
     )
     title: str = Field(..., min_length=1, max_length=200, description="Ticket title")
     description: str | None = Field(default=None, max_length=50000)
@@ -111,7 +66,7 @@ class Ticket(VticBaseModel):
         description="Repository in 'owner/repo' format",
     )
     owner: str | None = Field(default=None, max_length=100)
-    category: Category = Field(default=Category.CODE_QUALITY)
+    category: str = Field(default="general", max_length=100)
     severity: Severity = Field(default=Severity.MEDIUM)
     status: Status = Field(default=Status.OPEN)
     file: str | None = Field(
@@ -131,23 +86,22 @@ class Ticket(VticBaseModel):
         description="URL-safe slug for filename",
     )
 
-    # Multi-agent coordination fields
-    agent_id: str | None = Field(default=None, max_length=100,
-        description="Agent that last modified this ticket")
-    created_by: str | None = Field(default=None, max_length=100,
-        description="Agent that created this ticket")
     version: int = Field(default=1, ge=1,
         description="Optimistic concurrency version counter")
     due_date: date | None = Field(default=None, description="Optional due date for the ticket")
-    assignee: str | None = Field(default=None, max_length=100,
-        description="Agent currently assigned to work on this ticket")
+    start_date: date | None = Field(default=None, description="Planned start date for the ticket")
+    schema_version: str = Field(default="v0.2", max_length=20, description="Schema version")
+    kanban_task_ids: list[str] = Field(default_factory=list,
+        description="Linked Hermes Kanban task IDs")
+    checks: list[dict] = Field(default_factory=list,
+        description="Scheduled check events [{day_offset: int, label: str}]")
 
     @field_validator("id", mode="before")
     @classmethod
     def validate_id_format(cls, v: str) -> str:
         v = v.upper()
-        if not re.match(r"^[A-Z]\d+$", v):
-            raise ValueError(f"Invalid ID format: {v}. Expected: prefix + digits (e.g., C1, S2)")
+        if not re.match(r"^[A-Z]+-\d+$", v):
+            raise ValueError(f"Invalid ID format: {v}. Expected: prefix-digits (e.g., BREW-01, CODE-03)")
         return v
 
     @field_validator("title", mode="before")
@@ -202,7 +156,16 @@ class Ticket(VticBaseModel):
 
     @property
     def is_terminal(self) -> bool:
-        return self.status in (Status.FIXED, Status.WONT_FIX, Status.CLOSED)
+        return self.status in (Status.DONE, Status.CANCELLED)
+
+    @property
+    def overdue(self) -> bool:
+        if self.due_date is None:
+            return False
+        if self.status in (Status.DONE, Status.CANCELLED):
+            return False
+        from datetime import date as _date
+        return _date.today() > self.due_date
 
     @property
     def filename(self) -> str:
@@ -210,13 +173,13 @@ class Ticket(VticBaseModel):
 
     @property
     def filepath(self) -> str:
-        return f"{self.repo}/{self.category.value}/{self.filename}"
+        return f"{self.repo}/{self.category}/{self.filename}"
 
     @property
     def search_text(self) -> str:
         parts = [
             self.id, self.title, self.description or "", self.file or "",
-            self.fix or "", " ".join(self.tags), self.assignee or "",
+            self.fix or "", " ".join(self.tags),
         ]
         return " ".join(parts).strip()
 
@@ -235,12 +198,13 @@ class TicketCreate(VticBaseModel):
     description: str | None = Field(default=None, max_length=50000)
     fix: str | None = Field(default=None, max_length=20000)
     owner: str | None = Field(default=None, max_length=100)
-    category: Category = Field(default=Category.CODE_QUALITY)
+    category: str = Field(default="general", max_length=100)
     severity: Severity = Field(default=Severity.MEDIUM)
     status: Status = Field(default=Status.OPEN)
     file: str | None = Field(default=None, max_length=500)
     tags: list[str] = Field(default_factory=list, description="Searchable tags (max 50 items)")
     due_date: date | None = Field(default=None, description="Optional due date")
+    start_date: date | None = Field(default=None, description="Planned start date")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -285,16 +249,15 @@ class TicketUpdate(VticBaseModel):
     description: str | None = Field(default=None, max_length=50000)
     fix: str | None = Field(default=None, max_length=20000)
     owner: str | None = Field(default=None, max_length=100)
-    category: Category | None = Field(default=None)
+    category: str | None = Field(default=None, max_length=100)
     severity: Severity | None = Field(default=None)
     status: Status | None = Field(default=None)
     file: str | None = Field(default=None, max_length=500)
     tags: list[str] | None = Field(default=None, description="Searchable tags (max 50 items)")
     expected_version: int | None = Field(default=None, ge=1,
         description="Expected current version for optimistic concurrency check")
-    assignee: str | None = Field(default=None, max_length=100,
-        description="Agent to assign this ticket to (null clears assignment)")
     due_date: date | None = Field(default=None, description="Optional due date (null clears it)")
+    start_date: date | None = Field(default=None, description="Planned start date (null clears it)")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -350,11 +313,12 @@ class TicketResponse(VticBaseModel):
     is_terminal: bool
     filename: str
     filepath: str
-    agent_id: str | None = None
-    created_by: str | None = None
     version: int = 1
-    assignee: str | None = None
     due_date: str | None = None
+    start_date: str | None = None
+    schema_version: str = "v0.2"
+    kanban_task_ids: list[str] = Field(default_factory=list)
+    checks: list[dict] = Field(default_factory=list)
 
     @classmethod
     def from_ticket(cls, ticket: Ticket) -> "TicketResponse":
@@ -365,7 +329,7 @@ class TicketResponse(VticBaseModel):
             fix=ticket.fix,
             repo=ticket.repo,
             owner=ticket.owner,
-            category=ticket.category.value,
+            category=ticket.category,
             severity=ticket.severity.value,
             status=ticket.status.value,
             file=ticket.file,
@@ -376,11 +340,12 @@ class TicketResponse(VticBaseModel):
             is_terminal=ticket.is_terminal,
             filename=ticket.filename,
             filepath=ticket.filepath,
-            agent_id=ticket.agent_id,
-            created_by=ticket.created_by,
             version=ticket.version,
-            assignee=ticket.assignee,
             due_date=ticket.due_date.isoformat() if ticket.due_date else None,
+            start_date=ticket.start_date.isoformat() if ticket.start_date else None,
+            schema_version=ticket.schema_version,
+            kanban_task_ids=ticket.kanban_task_ids,
+            checks=ticket.checks,
         )
 
 
@@ -392,7 +357,7 @@ class SearchFilters(VticBaseModel):
     )
     status: list[Status] | None = Field(default=None, description="Filter by statuses (OR)")
     repo: list[str] | None = Field(default=None, description="Filter by repos (supports wildcards)")
-    category: list[Category] | None = Field(default=None, description="Filter by categories (OR)")
+    category: list[str] | None = Field(default=None, description="Filter by categories (OR)")
     created_after: datetime | None = Field(default=None)
     created_before: datetime | None = Field(default=None)
     updated_after: datetime | None = Field(default=None)
@@ -400,10 +365,10 @@ class SearchFilters(VticBaseModel):
     tags: list[str] | None = Field(default=None, description="Filter by tags (AND)")
     has_fix: bool | None = Field(default=None)
     owner: str | None = Field(default=None)
-    assignee: str | None = Field(default=None,
-        description="Filter by assigned agent")
     due_before: date | None = Field(default=None, description="Filter by due_date <= value")
     due_after: date | None = Field(default=None, description="Filter by due_date >= value")
+    start_before: date | None = Field(default=None, description="Filter by start_date <= value")
+    start_after: date | None = Field(default=None, description="Filter by start_date >= value")
 
     @field_validator("repo")
     @classmethod

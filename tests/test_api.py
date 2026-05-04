@@ -10,7 +10,7 @@ from pydantic import ValidationError as PydanticValidationError
 from starlette.testclient import TestClient as StarletteTestClient
 
 from vtic.api import create_app
-from vtic.models import Category, SearchRequest, Severity, Status, Ticket, TicketCreate
+from vtic.models import SearchRequest, Severity, Status, Ticket, TicketCreate
 from vtic.storage import TicketStore
 
 from conftest import make_ticket
@@ -77,7 +77,7 @@ def test_create_ticket(client: TestClient) -> None:
 
     assert response.status_code == 201
     body = response.json()
-    assert body["id"] == "S1"
+    assert body["id"] == "SEC-1"
     assert body["title"] == "CORS wildcard in production"
     assert body["repo"] == "ejacklab/open-dsearch"
     assert body["owner"] == "ejacklab"
@@ -102,40 +102,40 @@ def test_create_ticket_with_due_date(client: TestClient) -> None:
 
 
 def test_get_ticket(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("S1", title="CORS wildcard", category=Category.SECURITY))
+    store._create(make_ticket("SEC-1", title="CORS wildcard", category="security"))
 
-    response = client.get("/tickets/S1")
+    response = client.get("/tickets/SEC-1")
 
     assert response.status_code == 200
-    assert response.json()["id"] == "S1"
+    assert response.json()["id"] == "SEC-1"
 
 
 def test_get_not_found(client: TestClient) -> None:
-    response = client.get("/tickets/S404")
+    response = client.get("/tickets/SEC-404")
 
     assert response.status_code == 404
-    assert response.json()["message"] == "Ticket S404 not found"
+    assert response.json()["message"] == "Ticket SEC-404 not found"
 
 
 def test_list_tickets(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Cleanup helpers"))
-    store._create(make_ticket("S1", title="Fix TLS", category=Category.SECURITY))
+    store._create(make_ticket("CODE-1", title="Cleanup helpers"))
+    store._create(make_ticket("SEC-1", title="Fix TLS", category="security"))
 
     response = client.get("/tickets")
 
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 2
-    assert [ticket["id"] for ticket in body["data"]] == ["C1", "S1"]
+    assert [ticket["id"] for ticket in body["data"]] == ["CODE-1", "SEC-1"]
 
 
 def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Cleanup helpers", severity=Severity.LOW))
+    store._create(make_ticket("CODE-1", title="Cleanup helpers", severity=Severity.LOW))
     store._create(
         make_ticket(
-            "S1",
+            "SEC-1",
             title="Fix TLS",
-            category=Category.SECURITY,
+            category="security",
             severity=Severity.CRITICAL,
         )
     )
@@ -145,19 +145,19 @@ def test_list_with_filters(client: TestClient, store: TicketStore) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
-    assert [ticket["id"] for ticket in body["data"]] == ["S1"]
+    assert [ticket["id"] for ticket in body["data"]] == ["SEC-1"]
 
 
 def test_list_tickets_with_due_date_filter(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Due Jan", due_date=date(2026, 1, 15)))
-    store._create(make_ticket("C2", title="Due Dec", due_date=date(2026, 12, 15)))
+    store._create(make_ticket("CODE-1", title="Due Jan", due_date=date(2026, 1, 15)))
+    store._create(make_ticket("CODE-2", title="Due Dec", due_date=date(2026, 12, 15)))
 
     response = client.get("/tickets", params={"due_after": "2026-06-01"})
 
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
-    assert body["data"][0]["id"] == "C2"
+    assert body["data"][0]["id"] == "CODE-2"
 
 
 def test_list_with_owner_tags_and_date_filters(
@@ -165,7 +165,7 @@ def test_list_with_owner_tags_and_date_filters(
 ) -> None:
     store._create(
         make_ticket(
-            "C1",
+            "CODE-1",
             title="Owned API ticket",
             owner="smoke01",
             tags=["auth", "api"],
@@ -173,7 +173,7 @@ def test_list_with_owner_tags_and_date_filters(
     )
     store._create(
         make_ticket(
-            "C2",
+            "CODE-2",
             title="Wrong owner",
             owner="alex",
             tags=["auth", "api"],
@@ -193,7 +193,7 @@ def test_list_with_owner_tags_and_date_filters(
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
-    assert [ticket["id"] for ticket in body["data"]] == ["C1"]
+    assert [ticket["id"] for ticket in body["data"]] == ["CODE-1"]
 
 
 def test_list_rejects_invalid_enum_query_param(client: TestClient) -> None:
@@ -205,7 +205,7 @@ def test_list_rejects_invalid_enum_query_param(client: TestClient) -> None:
 
 
 def test_health_reports_healthy_store(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Cleanup helpers"))
+    store._create(make_ticket("CODE-1", title="Cleanup helpers"))
 
     response = client.get("/health")
 
@@ -216,7 +216,7 @@ def test_health_reports_healthy_store(client: TestClient, store: TicketStore) ->
 
 
 def test_health_reports_corrupted_ticket(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Healthy ticket", repo="acme/app"))
+    store._create(make_ticket("CODE-1", title="Healthy ticket", repo="acme/app"))
     broken_path = store.base_dir / "acme" / "app" / "code_quality" / "C2-broken.md"
     broken_path.parent.mkdir(parents=True, exist_ok=True)
     broken_path.write_text("---\nid: C2\ntitle: Broken\n---\n", encoding="utf-8")
@@ -232,55 +232,55 @@ def test_health_reports_corrupted_ticket(client: TestClient, store: TicketStore)
 
 
 def test_update_ticket(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Needs update", severity=Severity.MEDIUM))
+    store._create(make_ticket("CODE-1", title="Needs update", severity=Severity.MEDIUM))
 
     response = client.patch(
-        "/tickets/C1",
-        json={"severity": "high", "status": "in_progress", "description": "Updated details"},
+        "/tickets/CODE-1",
+        json={"severity": "high", "status": "active", "description": "Updated details"},
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["severity"] == "high"
-    assert body["status"] == "in_progress"
+    assert body["status"] == "active"
     assert body["description"] == "Updated details"
 
 
 def test_update_ticket_due_date(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Update due"))
+    store._create(make_ticket("CODE-1", title="Update due"))
 
-    response = client.patch("/tickets/C1", json={"due_date": "2026-08-01"})
+    response = client.patch("/tickets/CODE-1", json={"due_date": "2026-08-01"})
 
     assert response.status_code == 200
     assert response.json()["due_date"] == "2026-08-01"
 
 
 def test_delete_ticket(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Delete me"))
+    store._create(make_ticket("CODE-1", title="Delete me"))
 
-    response = client.delete("/tickets/C1")
+    response = client.delete("/tickets/CODE-1")
 
     assert response.status_code == 204
-    with pytest.raises(Exception, match="Ticket C1 not found"):
-        store.get("C1")
+    with pytest.raises(Exception, match="Ticket CODE-1 not found"):
+        store.get("CODE-1")
 
 
 def test_delete_ticket_force(client: TestClient, store: TicketStore) -> None:
-    store._create(make_ticket("C1", title="Force delete me"))
+    store._create(make_ticket("CODE-1", title="Force delete me"))
 
-    response = client.delete("/tickets/C1?force=true")
+    response = client.delete("/tickets/CODE-1?force=true")
 
     assert response.status_code == 204
-    with pytest.raises(Exception, match="Ticket C1 not found"):
-        store.get("C1")
+    with pytest.raises(Exception, match="Ticket CODE-1 not found"):
+        store.get("CODE-1")
 
 
 def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
     store._create(
         make_ticket(
-            "S1",
+            "SEC-1",
             title="CORS wildcard in production",
-            category=Category.SECURITY,
+            category="security",
             severity=Severity.CRITICAL,
             description="FastAPI service uses wildcard CORS.",
             tags=["cors", "fastapi"],
@@ -288,9 +288,9 @@ def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
     )
     store._create(
         make_ticket(
-            "C2",
+            "CODE-2",
             title="Another CORS misconfiguration",
-            category=Category.SECURITY,
+            category="security",
             severity=Severity.HIGH,
             description="Missing CORS headers on API endpoints.",
             tags=["cors", "api"],
@@ -298,7 +298,7 @@ def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
     )
     store._create(
         make_ticket(
-            "C1",
+            "CODE-1",
             title="Cleanup auth helpers",
             description="Refactor duplicated auth helper code.",
         )
@@ -310,8 +310,8 @@ def test_search_endpoint(client: TestClient, store: TicketStore) -> None:
     body = response.json()
     assert body["total"] >= 1
     result_ids = [result["id"] for result in body["results"]]
-    assert "S1" in result_ids
-    assert "C1" not in result_ids
+    assert "SEC-1" in result_ids
+    assert "CODE-1" not in result_ids
 
 
 def test_create_ticket_rejects_unknown_fields() -> None:

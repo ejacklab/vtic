@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from vtic.models import Category, Severity, Status, Ticket
+from vtic.models import Severity, Status, Ticket
 from vtic.utils import slugify
 
 
@@ -17,7 +17,7 @@ def make_ticket(
     title: str,
     *,
     repo: str = "owner/repo",
-    category: Category = Category.CODE_QUALITY,
+    category: str = "code_quality",
     severity: Severity = Severity.MEDIUM,
     status: Status = Status.OPEN,
     description: str | None = None,
@@ -29,12 +29,7 @@ def make_ticket(
     updated_at: datetime | None = None,
     due_date: date | None = None,
 ) -> Ticket:
-    """Create a test ticket with sensible defaults.
-
-    Provides all Ticket fields so callers can override any subset.
-    Used across test_storage, test_api, and test_search to avoid
-    duplicating helper functions (I8 from Round 1 review).
-    """
+    """Create a test ticket with sensible defaults."""
     ts = created_at or FIXED_TIMESTAMP
     return Ticket(
         id=id,
@@ -64,13 +59,13 @@ def sample_timestamp() -> datetime:
 @pytest.fixture
 def sample_ticket(sample_timestamp: datetime) -> Ticket:
     return Ticket(
-        id="S1",
+        id="S-1",
         title="CORS Wildcard in Production",
         description="All FastAPI services use allow_origins=['*'].",
         fix="Use ALLOWED_ORIGINS from env.",
         repo="ejacklab/open-dsearch",
         owner="smoke01",
-        category=Category.SECURITY,
+        category="security",
         severity=Severity.CRITICAL,
         status=Status.OPEN,
         file="backend/api-gateway/main.py:27-32",
@@ -86,15 +81,15 @@ def sample_tickets(sample_ticket: Ticket, sample_timestamp: datetime) -> list[Ti
     return [
         sample_ticket,
         Ticket(
-            id="C2",
+            id="C-2",
             title="Duplicated auth helpers across services",
             description="Helpers drift across services.",
             fix=None,
             repo="ejacklab/open-dsearch",
             owner="smoke01",
-            category=Category.CODE_QUALITY,
+            category="code_quality",
             severity=Severity.HIGH,
-            status=Status.IN_PROGRESS,
+            status=Status.ACTIVE,
             file="backend/auth/utils.py:1-120",
             tags=["auth", "refactor", "duplication"],
             created_at=sample_timestamp,

@@ -17,7 +17,6 @@ from vtic.config import load_config
 from vtic.errors import ValidationError as VticValidationError
 from vtic.errors import VticError
 from vtic.models import (
-    Category,
     SearchFilters,
     SearchResponse,
     Severity,
@@ -42,8 +41,7 @@ class OutputFormat(StrEnum):
 def _resolve_store(tickets_dir: Path | None) -> TicketStore:
     config = load_config()
     base_dir = tickets_dir or config.effective_tickets_dir
-    agent_id = config.shared.agent_id if config.shared.enabled else None
-    return TicketStore(base_dir, agent_id=agent_id)
+    return TicketStore(base_dir)
 
 
 def _print_ticket(ticket: Ticket, title: str) -> None:
@@ -53,7 +51,7 @@ def _print_ticket(ticket: Ticket, title: str) -> None:
             f"[bold]ID:[/bold] {ticket.id}",
             f"[bold]Title:[/bold] {ticket.title}",
             f"[bold]Repo:[/bold] {ticket.repo}",
-            f"[bold]Category:[/bold] {ticket.category.value}",
+            f"[bold]Category:[/bold] {ticket.category}",
             f"[bold]Severity:[/bold] {ticket.severity.value}",
             f"[bold]Status:[/bold] {ticket.status.value}",
             f"[bold]Owner:[/bold] {ticket.owner or '-'}",
@@ -127,8 +125,8 @@ def init(
 def create(
     repo: str = typer.Option(..., "--repo", help="Repository in owner/repo format"),
     owner: str | None = typer.Option(None, "--owner", help="Ticket owner"),
-    category: Category = typer.Option(
-        Category.CODE_QUALITY, "--category", help="Ticket category"
+    category: str = typer.Option(
+        "general", "--category", help="Ticket category"
     ),
     severity: Severity = typer.Option(
         Severity.MEDIUM, "--severity", help="Ticket severity"
@@ -204,7 +202,7 @@ def list_tickets(
     tags: str | None = typer.Option(
         None, "--tags", help="Filter by comma-separated tags"
     ),
-    category: Category | None = typer.Option(
+    category: str | None = typer.Option(
         None, "--category", help="Filter by category"
     ),
     severity: Severity | None = typer.Option(
@@ -269,7 +267,7 @@ def list_tickets(
             table.add_row(
                 ticket.id,
                 ticket.title,
-                ticket.category.value,
+                ticket.category,
                 ticket.severity.value,
                 ticket.status.value,
                 ticket.repo,
@@ -288,7 +286,7 @@ def search(
         None, "--severity", help="Filter by severity"
     ),
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
-    category: Category | None = typer.Option(
+    category: str | None = typer.Option(
         None, "--category", help="Filter by category"
     ),
     status: Status | None = typer.Option(None, "--status", help="Filter by status"),
@@ -352,7 +350,6 @@ def update(
     description: str | None = typer.Option(
         None, "--description", help="New description"
     ),
-    assignee: str | None = typer.Option(None, "--assignee", help="Assign ticket to agent"),
     due_date: str | None = typer.Option(
         None, "--due-date", help="Due date (YYYY-MM-DD, or 'none' to clear)"
     ),
@@ -371,7 +368,7 @@ def update(
         if owner is not None:
             update_data["owner"] = owner
         if category is not None:
-            update_data["category"] = Category(category)
+            update_data["category"] = category
         if file is not None:
             update_data["file"] = file
         if tags is not None:
@@ -380,8 +377,6 @@ def update(
             update_data["title"] = title
         if description is not None:
             update_data["description"] = description
-        if assignee is not None:
-            update_data["assignee"] = assignee
         if due_date is not None:
             if due_date.lower() == "none":
                 update_data["due_date"] = None

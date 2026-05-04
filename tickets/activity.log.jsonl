@@ -1,0 +1,33 @@
+{"ts": "2026-04-28T02:04:17.248664+00:00", "action": "created", "ticket_id": "C1", "agent": null}
+{"ts": "2026-04-28T02:04:43.554735+00:00", "action": "created", "ticket_id": "C2", "agent": null}
+{"ts": "2026-04-28T02:04:45.332591+00:00", "action": "created", "ticket_id": "C3", "agent": null}
+{"ts": "2026-04-28T02:04:46.680654+00:00", "action": "created", "ticket_id": "T1", "agent": null}
+{"ts": "2026-04-28T02:04:48.114542+00:00", "action": "created", "ticket_id": "T2", "agent": null}
+{"ts": "2026-04-28T02:04:49.424785+00:00", "action": "created", "ticket_id": "T3", "agent": null}
+{"ts": "2026-04-28T02:06:18.988336+00:00", "action": "updated", "ticket_id": "C1", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-04-28T02:06:20.335189+00:00", "action": "updated", "ticket_id": "C2", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-04-28T02:06:21.611667+00:00", "action": "updated", "ticket_id": "C3", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-04-28T02:06:22.891310+00:00", "action": "updated", "ticket_id": "T1", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-04-28T02:06:24.164846+00:00", "action": "updated", "ticket_id": "T2", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-04-28T02:06:25.433782+00:00", "action": "updated", "ticket_id": "T3", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-03T02:03:02.113923+00:00", "action": "created", "ticket_id": "C4", "agent": null}
+{"ts": "2026-05-03T02:03:09.275447+00:00", "action": "created", "ticket_id": "C5", "agent": null}
+{"ts": "2026-05-03T02:03:15.122768+00:00", "action": "created", "ticket_id": "C6", "agent": null}
+{"ts": "2026-05-03T02:03:20.365506+00:00", "action": "created", "ticket_id": "T4", "agent": null}
+{"ts": "2026-05-03T02:03:25.458732+00:00", "action": "created", "ticket_id": "T5", "agent": null}
+{"ts": "2026-05-03T02:03:31.871495+00:00", "action": "created", "ticket_id": "T6", "agent": null}
+{"ts": "2026-05-03T02:03:37.121761+00:00", "action": "created", "ticket_id": "T7", "agent": null}
+{"ts": "2026-05-03T02:03:43.191945+00:00", "action": "created", "ticket_id": "T8", "agent": null}
+{"ts": "2026-05-03T02:07:52.638597+00:00", "action": "updated", "ticket_id": "C4", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-03T02:07:52.819832+00:00", "action": "updated", "ticket_id": "C5", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-03T02:07:52.992731+00:00", "action": "updated", "ticket_id": "C6", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-03T02:07:53.166774+00:00", "action": "updated", "ticket_id": "T4", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-03T02:07:53.344924+00:00", "action": "updated", "ticket_id": "T5", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-03T02:07:53.516930+00:00", "action": "updated", "ticket_id": "T6", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-03T02:07:53.696717+00:00", "action": "updated", "ticket_id": "T7", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-03T02:07:53.872218+00:00", "action": "updated", "ticket_id": "T8", "agent": null, "fields": {"status": "closed"}}
+{"ts": "2026-05-04T02:12:05.902198+00:00", "action": "created", "ticket_id": "C7", "agent": null}
+{"ts": "2026-05-04T02:12:14.276023+00:00", "action": "created", "ticket_id": "C8", "agent": null}
+{"ts": "2026-05-04T02:12:22.283241+00:00", "action": "created", "ticket_id": "T9", "agent": null}
+{"ts": "2026-05-04T02:12:30.683057+00:00", "action": "created", "ticket_id": "T10", "agent": null}
+{"ts": "2026-05-04T02:12:39.186817+00:00", "action": "created", "ticket_id": "T11", "agent": null}

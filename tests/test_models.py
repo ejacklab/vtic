@@ -7,12 +7,8 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from vtic.constants import CATEGORY_PREFIXES as CONSTANT_CATEGORY_PREFIXES
 from vtic.constants import TERMINAL_STATUSES
 from vtic.models import (
-    CATEGORY_PREFIXES,
-    Category,
-    CategoryLiteral,
     PaginatedResponse,
     SearchFilters,
     SearchRequest,
@@ -30,40 +26,25 @@ from vtic.utils import slugify, ticket_path
 
 def test_enum_values_and_string_comparison() -> None:
     assert Severity.CRITICAL == "critical"
-    assert Status.IN_PROGRESS == "in_progress"
-    assert Category.CODE_QUALITY == "code_quality"
+    assert Status.ACTIVE == "active"
     assert set(get_args(SeverityLiteral)) == {"critical", "high", "medium", "low"}
-    assert set(get_args(StatusLiteral)) == {"open", "in_progress", "blocked", "fixed", "wont_fix", "closed"}
-    assert set(get_args(CategoryLiteral)) == {category.value for category in Category}
+    assert set(get_args(StatusLiteral)) == {"open", "active", "done", "cancelled"}
 
 
 def test_all_enum_values() -> None:
     assert len(Severity) == 4
-    assert len(Status) == 6
-    assert len(Category) == 15
+    assert len(Status) == 4
     assert Severity.LOW.value == "low"
-    assert Status.WONT_FIX.value == "wont_fix"
-    assert Category.DEPENDENCIES.value == "dependencies"
-
-
-def test_category_auth_value_is_auth() -> None:
-    assert Category.AUTH.value == "auth"
-
-
-def test_category_prefixes_completeness() -> None:
-    assert set(CATEGORY_PREFIXES) == set(Category)
-    assert {category.value: prefix for category, prefix in CATEGORY_PREFIXES.items()} == CONSTANT_CATEGORY_PREFIXES
-    assert CATEGORY_PREFIXES[Category.CODE_QUALITY] == "C"
-    assert CATEGORY_PREFIXES[Category.SECURITY] == "S"
-    assert CATEGORY_PREFIXES[Category.API] == "X"
+    assert Status.CANCELLED.value == "cancelled"
+    assert Status.DONE.value == "done"
 
 
 def test_ticket_creation_with_all_fields(sample_ticket: Ticket, sample_timestamp: datetime) -> None:
-    assert sample_ticket.id == "S1"
+    assert sample_ticket.id == "S-1"
     assert sample_ticket.title == "CORS Wildcard in Production"
     assert sample_ticket.repo == "ejacklab/open-dsearch"
     assert sample_ticket.owner == "smoke01"
-    assert sample_ticket.category is Category.SECURITY
+    assert sample_ticket.category == "security"
     assert sample_ticket.severity is Severity.CRITICAL
     assert sample_ticket.status is Status.OPEN
     assert sample_ticket.tags == ["cors", "security", "fastapi"]
@@ -73,7 +54,7 @@ def test_ticket_creation_with_all_fields(sample_ticket: Ticket, sample_timestamp
 
 def test_ticket_defaults_and_validators(sample_timestamp: datetime) -> None:
     ticket = Ticket(
-        id="c7",
+        id="c-7",
         title="  Needs cleanup  ",
         repo="EJackLab/Open-DSearch",
         created_at=sample_timestamp,
@@ -82,10 +63,10 @@ def test_ticket_defaults_and_validators(sample_timestamp: datetime) -> None:
         tags=["  Auth ", "auth", "", "Refactor "],
     )
 
-    assert ticket.id == "C7"
+    assert ticket.id == "C-7"
     assert ticket.title == "Needs cleanup"
     assert ticket.repo == "ejacklab/open-dsearch"
-    assert ticket.category is Category.CODE_QUALITY
+    assert ticket.category == "general"
     assert ticket.severity is Severity.MEDIUM
     assert ticket.status is Status.OPEN
     assert ticket.tags == ["auth", "refactor"]
@@ -94,7 +75,7 @@ def test_ticket_defaults_and_validators(sample_timestamp: datetime) -> None:
 def test_ticket_with_due_date(sample_timestamp: datetime) -> None:
     """Ticket accepts optional due_date."""
     ticket = Ticket(
-        id="C1",
+        id="C-1",
         title="With due date",
         repo="owner/repo",
         created_at=sample_timestamp,
@@ -109,7 +90,7 @@ def test_ticket_with_due_date(sample_timestamp: datetime) -> None:
 def test_ticket_without_due_date_is_none(sample_timestamp: datetime) -> None:
     """Ticket due_date defaults to None for backward compatibility."""
     ticket = Ticket(
-        id="C1",
+        id="C-1",
         title="No due date",
         repo="owner/repo",
         created_at=sample_timestamp,
@@ -122,7 +103,7 @@ def test_ticket_without_due_date_is_none(sample_timestamp: datetime) -> None:
 
 def test_ticket_normalizes_newlines_in_title_and_owner(sample_timestamp: datetime) -> None:
     ticket = Ticket(
-        id="C8",
+        id="C-8",
         title="Needs\ncleanup",
         repo="owner/repo",
         owner="smoke\n01",
@@ -138,7 +119,7 @@ def test_ticket_normalizes_newlines_in_title_and_owner(sample_timestamp: datetim
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("id", "bad-1"),
+        ("id", "1-A"),
         ("repo", "missing-slash"),
         ("slug", "Bad Slug"),
         ("file", "app.py:1:2"),
@@ -146,7 +127,7 @@ def test_ticket_normalizes_newlines_in_title_and_owner(sample_timestamp: datetim
 )
 def test_ticket_validation_bad_fields(sample_timestamp: datetime, field: str, value: str) -> None:
     data = {
-        "id": "C1",
+        "id": "C-1",
         "title": "Valid",
         "repo": "owner/repo",
         "created_at": sample_timestamp,
@@ -162,7 +143,7 @@ def test_ticket_validation_bad_fields(sample_timestamp: datetime, field: str, va
 def test_ticket_validation_bad_timestamps(sample_timestamp: datetime) -> None:
     with pytest.raises(PydanticValidationError, match="updated_at cannot be earlier than created_at"):
         Ticket(
-            id="C1",
+            id="C-1",
             title="Valid",
             repo="owner/repo",
             created_at=sample_timestamp,
@@ -174,7 +155,7 @@ def test_ticket_validation_bad_timestamps(sample_timestamp: datetime) -> None:
 def test_ticket_validation_too_many_tags(sample_timestamp: datetime) -> None:
     with pytest.raises(PydanticValidationError, match="Cannot have more than 50 tags"):
         Ticket(
-            id="C1",
+            id="C-1",
             title="Valid",
             repo="owner/repo",
             created_at=sample_timestamp,
@@ -193,7 +174,7 @@ def test_ticket_create_validation_defaults_and_repo_normalization() -> None:
 
     assert payload.title == "New ticket"
     assert payload.repo == "owner/repo"
-    assert payload.category is Category.CODE_QUALITY
+    assert payload.category == "general"
     assert payload.severity is Severity.MEDIUM
     assert payload.status is Status.OPEN
     assert payload.tags == ["upper", "duplicate"]
@@ -224,9 +205,9 @@ def test_ticket_create_with_all_explicit_fields() -> None:
         description="Detailed description.",
         fix="Apply the patch.",
         owner="Smoke01",
-        category=Category.AUTH,
+        category="auth",
         severity=Severity.HIGH,
-        status=Status.BLOCKED,
+        status=Status.ACTIVE,
         file="src/auth.py:10-20",
         tags=["Auth", "backend", "Auth"],
     )
@@ -236,9 +217,9 @@ def test_ticket_create_with_all_explicit_fields() -> None:
     assert payload.description == "Detailed description."
     assert payload.fix == "Apply the patch."
     assert payload.owner == "Smoke01"
-    assert payload.category is Category.AUTH
+    assert payload.category == "auth"
     assert payload.severity is Severity.HIGH
-    assert payload.status is Status.BLOCKED
+    assert payload.status is Status.ACTIVE
     assert payload.file == "src/auth.py:10-20"
     assert payload.tags == ["auth", "backend"]
 
@@ -346,7 +327,7 @@ def test_ticket_response_from_ticket(sample_ticket: Ticket) -> None:
     response = TicketResponse.from_ticket(sample_ticket)
 
     assert response.id == sample_ticket.id
-    assert response.category == sample_ticket.category.value
+    assert response.category == sample_ticket.category
     assert response.severity == sample_ticket.severity.value
     assert response.status == sample_ticket.status.value
     assert response.created_at == sample_ticket.created_at.isoformat()
@@ -359,7 +340,7 @@ def test_ticket_response_from_ticket(sample_ticket: Ticket) -> None:
 def test_ticket_response_includes_due_date(sample_timestamp: datetime) -> None:
     """TicketResponse.from_ticket includes due_date."""
     ticket = Ticket(
-        id="C1",
+        id="C-1",
         title="Response test",
         repo="owner/repo",
         created_at=sample_timestamp,
@@ -376,7 +357,7 @@ def test_ticket_response_includes_due_date(sample_timestamp: datetime) -> None:
 def test_ticket_response_none_due_date(sample_timestamp: datetime) -> None:
     """TicketResponse.from_ticket handles None due_date."""
     ticket = Ticket(
-        id="C1",
+        id="C-1",
         title="No due",
         repo="owner/repo",
         created_at=sample_timestamp,
@@ -391,10 +372,10 @@ def test_ticket_response_none_due_date(sample_timestamp: datetime) -> None:
 
 def test_ticket_properties(sample_ticket: Ticket, tmp_path: Path) -> None:
     assert sample_ticket.is_terminal is False
-    assert sample_ticket.filename == "S1-cors-wildcard-in-production.md"
-    assert sample_ticket.filepath == "ejacklab/open-dsearch/security/S1-cors-wildcard-in-production.md"
+    assert sample_ticket.filename == "S-1-cors-wildcard-in-production.md"
+    assert sample_ticket.filepath == "ejacklab/open-dsearch/security/S-1-cors-wildcard-in-production.md"
     assert sample_ticket.search_text == (
-        "S1 CORS Wildcard in Production All FastAPI services use allow_origins=['*']. "
+        "S-1 CORS Wildcard in Production All FastAPI services use allow_origins=['*']. "
         "backend/api-gateway/main.py:27-32 Use ALLOWED_ORIGINS from env. cors security fastapi"
     )
     assert ticket_path(tmp_path, sample_ticket) == (
@@ -402,13 +383,13 @@ def test_ticket_properties(sample_ticket: Ticket, tmp_path: Path) -> None:
         / "ejacklab"
         / "open-dsearch"
         / "security"
-        / "S1-cors-wildcard-in-production.md"
+        / "S-1-cors-wildcard-in-production.md"
     )
 
 
 def test_search_text_includes_fix(sample_timestamp: datetime) -> None:
     ticket = Ticket(
-        id="C1",
+        id="C-1",
         title="Shared helper cleanup",
         description="Move auth helpers into one place.",
         fix="Extract helpers into a common module.",
@@ -423,13 +404,13 @@ def test_search_text_includes_fix(sample_timestamp: datetime) -> None:
 
 def test_terminal_status_property(sample_timestamp: datetime) -> None:
     ticket = Ticket(
-        id="C9",
+        id="C-9",
         title="Terminal",
         repo="owner/repo",
         created_at=sample_timestamp,
         updated_at=sample_timestamp,
         slug="terminal",
-        status=Status.FIXED,
+        status=Status.DONE,
     )
 
     assert ticket.is_terminal is True
@@ -446,35 +427,35 @@ def test_ticket_direct_validation_edge_cases(sample_timestamp: datetime) -> None
     # Empty title after stripping
     with pytest.raises(PydanticValidationError, match="Title cannot be empty"):
         Ticket(
-            id="C1", title="", repo="owner/repo",
+            id="C-1", title="", repo="owner/repo",
             created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
         )
 
     # Whitespace-only title
     with pytest.raises(PydanticValidationError, match="Title cannot be empty"):
         Ticket(
-            id="C1", title="   ", repo="owner/repo",
+            id="C-1", title="   ", repo="owner/repo",
             created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
         )
 
     # Invalid repo format - no slash
     with pytest.raises(PydanticValidationError, match="Invalid repo format"):
         Ticket(
-            id="C1", title="Valid", repo="noslash",
+            id="C-1", title="Valid", repo="noslash",
             created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
         )
 
     # Invalid repo format - too many slashes
     with pytest.raises(PydanticValidationError, match="Invalid repo format"):
         Ticket(
-            id="C1", title="Valid", repo="a/b/c",
+            id="C-1", title="Valid", repo="a/b/c",
             created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
         )
 
     # Invalid severity value
     with pytest.raises(PydanticValidationError):
         Ticket(
-            id="C1", title="Valid", repo="owner/repo",
+            id="C-1", title="Valid", repo="owner/repo",
             severity="urgent",
             created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
         )
@@ -482,7 +463,7 @@ def test_ticket_direct_validation_edge_cases(sample_timestamp: datetime) -> None
     # Repo with dot segments
     with pytest.raises(PydanticValidationError, match="cannot be '\\.' or '\\.\\.'"):
         Ticket(
-            id="C1", title="Valid", repo="./repo",
+            id="C-1", title="Valid", repo="./repo",
             created_at=sample_timestamp, updated_at=sample_timestamp, slug="valid",
         )
 
@@ -551,14 +532,14 @@ def test_ticket_update_none_fields_preserve_existing() -> None:
     """Test that TicketUpdate with None fields does not alter existing values."""
     ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
     base_data = {
-        "id": "C1",
+        "id": "C-1",
         "title": "Original",
         "repo": "owner/repo",
         "created_at": ts,
         "updated_at": ts,
         "slug": "original",
     }
-    original = Ticket(**base_data)
+    Ticket(**base_data)
 
     # All-None update should not change anything
     update = TicketUpdate()

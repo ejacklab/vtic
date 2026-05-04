@@ -10,6 +10,7 @@
 - refine local conventions as patterns emerge
 
 ## Done
+- VTIC Phase 2 due_date field implementation across models, storage, CLI, API, migration script, and tests
 - bootstrap lightweight self-harness for cclow
 - create `skills/self-harness/` as the router skill for using and evolving the harness
 - MoneyFlow agent auth security fixes in `/tmp/lovemonself` (hashed token storage + permission-enforced agent routes)

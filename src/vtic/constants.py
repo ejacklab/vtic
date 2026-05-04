@@ -4,35 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-CATEGORY_PREFIXES: dict[str, str] = {
-    "code_quality": "C",
-    "security": "S",
-    "auth": "A",
-    "infrastructure": "I",
-    "documentation": "D",
-    "testing": "T",
-    "performance": "P",
-    "frontend": "F",
-    "configuration": "N",
-    "api": "X",
-    "data": "M",
-    "ui": "U",
-    "dependencies": "Y",
-    "build": "B",
-    "other": "O",
-}
-
 VALID_STATUSES: tuple[str, ...] = (
     "open",
-    "in_progress",
-    "blocked",
-    "fixed",
-    "wont_fix",
-    "closed",
+    "active",
+    "done",
+    "cancelled",
 )
 
 TERMINAL_STATUSES: frozenset[str] = frozenset(
-    {"fixed", "wont_fix", "closed"}
+    {"done", "cancelled"}
 )
 
 STATUS_METADATA: dict[str, dict[str, str]] = {
@@ -42,35 +22,23 @@ STATUS_METADATA: dict[str, dict[str, str]] = {
         "description": "New ticket, not yet started",
         "color": "cyan",
     },
-    "in_progress": {
-        "name": "in_progress",
-        "display_name": "In Progress",
+    "active": {
+        "name": "active",
+        "display_name": "Active",
         "description": "Currently being worked on",
         "color": "yellow",
     },
-    "blocked": {
-        "name": "blocked",
-        "display_name": "Blocked",
-        "description": "Waiting on external dependency",
-        "color": "red",
-    },
-    "fixed": {
-        "name": "fixed",
-        "display_name": "Fixed",
-        "description": "Issue resolved",
+    "done": {
+        "name": "done",
+        "display_name": "Done",
+        "description": "Ticket completed",
         "color": "green",
     },
-    "wont_fix": {
-        "name": "wont_fix",
-        "display_name": "Won't Fix",
-        "description": "Will not be resolved",
+    "cancelled": {
+        "name": "cancelled",
+        "display_name": "Cancelled",
+        "description": "Ticket cancelled",
         "color": "gray",
-    },
-    "closed": {
-        "name": "closed",
-        "display_name": "Closed",
-        "description": "Ticket closed",
-        "color": "blue",
     },
 }
 

@@ -287,7 +287,7 @@ class TicketSearch:
             id=ticket.id,
             title=ticket.title,
             repo=ticket.repo,
-            category=ticket.category.value,
+            category=ticket.category,
             severity=ticket.severity.value,
             status=ticket.status.value,
             description=ticket.description,
@@ -302,7 +302,8 @@ class TicketSearch:
     def _ticket_sort_key(ticket: Ticket) -> tuple[str, int]:
         """Sort tickets by stable ticket ID ordering."""
 
-        return (ticket.id[0], int(ticket.id[1:]))
+        prefix, _, num = ticket.id.rpartition("-")
+        return (prefix, int(num) if num.isdigit() else 0)
 
     def search(
         self,

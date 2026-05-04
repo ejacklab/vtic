@@ -47,7 +47,7 @@ def test_full_lifecycle(tmp_path: Path) -> None:
         env=_env(tmp_path),
     )
     assert create_result.exit_code == 0
-    assert "S1" in create_result.output
+    assert "SEC-1" in create_result.output
 
     second_create_result = runner.invoke(
         app,
@@ -55,6 +55,8 @@ def test_full_lifecycle(tmp_path: Path) -> None:
             "create",
             "--repo",
             "ejacklab/open-dsearch",
+            "--category",
+            "code_quality",
             "--title",
             "Shared auth helpers cleanup",
             "--description",
@@ -70,6 +72,8 @@ def test_full_lifecycle(tmp_path: Path) -> None:
             "create",
             "--repo",
             "ejacklab/open-dsearch",
+            "--category",
+            "code_quality",
             "--title",
             "Document deployment checklist",
             "--description",
@@ -79,29 +83,29 @@ def test_full_lifecycle(tmp_path: Path) -> None:
     )
     assert third_create_result.exit_code == 0
 
-    get_result = runner.invoke(app, ["get", "S1"], env=_env(tmp_path))
+    get_result = runner.invoke(app, ["get", "SEC-1"], env=_env(tmp_path))
     assert get_result.exit_code == 0
     assert "CORS wildcard in production" in get_result.output
 
     search_result = runner.invoke(app, ["search", "cors"], env=_env(tmp_path))
     assert search_result.exit_code == 0
-    assert "S1" in search_result.output
+    assert "SEC-1" in search_result.output
 
-    update_result = runner.invoke(app, ["update", "--id", "S1", "--status", "fixed"], env=_env(tmp_path))
+    update_result = runner.invoke(app, ["update", "--id", "SEC-1", "--status", "done"], env=_env(tmp_path))
     assert update_result.exit_code == 0
-    assert "fixed" in update_result.output
+    assert "done" in update_result.output
 
-    list_result = runner.invoke(app, ["list", "--status", "fixed"], env=_env(tmp_path))
+    list_result = runner.invoke(app, ["list", "--status", "done"], env=_env(tmp_path))
     assert list_result.exit_code == 0
-    assert "S1" in list_result.output
+    assert "SEC-1" in list_result.output
 
-    delete_result = runner.invoke(app, ["delete", "--id", "S1", "--yes"], env=_env(tmp_path))
+    delete_result = runner.invoke(app, ["delete", "--id", "SEC-1", "--yes"], env=_env(tmp_path))
     assert delete_result.exit_code == 0
     assert "Deleted (moved to trash)" in delete_result.output
     store = TicketStore(tickets_dir)
     with pytest.raises(TicketNotFoundError):
-        store.get("S1")
-    assert [ticket.id for ticket in store.list()] == ["C1", "C2"]
+        store.get("SEC-1")
+    assert [ticket.id for ticket in store.list()] == ["CODE-1", "CODE-2"]
 
 
 def test_full_lifecycle_with_search_update(tmp_path: Path) -> None:
@@ -112,26 +116,26 @@ def test_full_lifecycle_with_search_update(tmp_path: Path) -> None:
     runner.invoke(app, ["init", "--dir", str(tickets_dir)], env=_env(tmp_path))
     runner.invoke(
         app,
-        ["create", "--repo", "acme/platform", "--title", "Auth middleware refactor"],
+        ["create", "--repo", "acme/platform", "--category", "code_quality", "--title", "Auth middleware refactor"],
         env=_env(tmp_path),
     )
     runner.invoke(
         app,
-        ["create", "--repo", "acme/platform", "--title", "Database query optimization"],
+        ["create", "--repo", "acme/platform", "--category", "code_quality", "--title", "Database query optimization"],
         env=_env(tmp_path),
     )
 
-    # Search for "auth" - should find C1
+    # Search for "auth" - should find CODE-1
     result = runner.invoke(app, ["search", "auth", "--format", "json"], env=_env(tmp_path))
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["total"] == 1
-    assert payload["results"][0]["id"] == "C1"
+    assert payload["results"][0]["id"] == "CODE-1"
 
-    # Update C2 title to include "auth"
+    # Update CODE-2 title to include "auth"
     runner.invoke(
         app,
-        ["update", "--id", "C2", "--title", "Auth database connection pooling"],
+        ["update", "--id", "CODE-2", "--title", "Auth database connection pooling"],
         env=_env(tmp_path),
     )
 
@@ -147,12 +151,12 @@ def test_full_lifecycle_with_search_update(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     assert len(payload) == 2
 
-    # Delete C1
-    runner.invoke(app, ["delete", "--id", "C1", "--yes", "--force"], env=_env(tmp_path))
+    # Delete CODE-1
+    runner.invoke(app, ["delete", "--id", "CODE-1", "--yes", "--force"], env=_env(tmp_path))
 
-    # Verify only C2 remains
+    # Verify only CODE-2 remains
     store = TicketStore(tickets_dir)
-    assert [t.id for t in store.list()] == ["C2"]
+    assert [t.id for t in store.list()] == ["CODE-2"]
 
 
 def test_concurrent_create_then_search(tmp_path: Path) -> None:
@@ -164,7 +168,7 @@ def test_concurrent_create_then_search(tmp_path: Path) -> None:
     for i in range(5):
         runner.invoke(
             app,
-            ["create", "--repo", "acme/platform", "--title", f"Ticket number {i}"],
+            ["create", "--repo", "acme/platform", "--category", "code_quality", "--title", f"Ticket number {i}"],
             env=_env(tmp_path),
         )
 
@@ -173,7 +177,7 @@ def test_concurrent_create_then_search(tmp_path: Path) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert len(payload) == 5
-    assert [t["id"] for t in payload] == ["C1", "C2", "C3", "C4", "C5"]
+    assert [t["id"] for t in payload] == ["CODE-1", "CODE-2", "CODE-3", "CODE-4", "CODE-5"]
 
     # Search for "ticket"
     result = runner.invoke(app, ["search", "ticket", "--format", "json"], env=_env(tmp_path))
@@ -186,9 +190,9 @@ def test_concurrent_create_then_search(tmp_path: Path) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["total"] >= 1
-    # "number 3" should rank C3 highly (exact match for "3")
+    # "number 3" should rank CODE-3 highly (exact match for "3")
     result_ids = [r["id"] for r in payload["results"]]
-    assert "C3" in result_ids
+    assert "CODE-3" in result_ids
 
 
 def test_create_search_update_verify_search(tmp_path: Path) -> None:
@@ -197,7 +201,7 @@ def test_create_search_update_verify_search(tmp_path: Path) -> None:
 
     create_result = runner.invoke(
         app,
-        ["create", "--dir", str(tickets_dir), "--repo", "acme/platform", "--title", "Auth flow regression"],
+        ["create", "--dir", str(tickets_dir), "--repo", "acme/platform", "--category", "code_quality", "--title", "Auth flow regression"],
         env=_env(tmp_path),
     )
     assert create_result.exit_code == 0
@@ -210,11 +214,11 @@ def test_create_search_update_verify_search(tmp_path: Path) -> None:
     assert first_search.exit_code == 0
     first_payload = json.loads(first_search.output)
     assert first_payload["total"] == 1
-    assert first_payload["results"][0]["id"] == "C1"
+    assert first_payload["results"][0]["id"] == "CODE-1"
 
     update_result = runner.invoke(
         app,
-        ["update", "--dir", str(tickets_dir), "--id", "C1", "--title", "Session flow regression"],
+        ["update", "--dir", str(tickets_dir), "--id", "CODE-1", "--title", "Session flow regression"],
         env=_env(tmp_path),
     )
     assert update_result.exit_code == 0

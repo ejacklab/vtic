@@ -19,6 +19,8 @@ try:
 except ImportError:  # pragma: no cover - Windows does not provide fcntl.
     fcntl = None
 
+import re
+
 from .constants import VALID_STATUSES
 from .errors import (
     ConflictError,
@@ -30,8 +32,6 @@ from .errors import (
     ValidationError,
 )
 from .models import (
-    CATEGORY_PREFIXES,
-    Category,
     ErrorDetail,
     SearchFilters,
     Severity,
@@ -39,7 +39,7 @@ from .models import (
     Ticket,
     TicketUpdate,
 )
-from .utils import isoformat_z, normalize_tags, slugify, ticket_path, utc_now
+from .utils import isoformat_z, normalize_tags, parse_ticket_id, slugify, ticket_path, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,38 @@ STATUS_ORDER = {
     Status(status): index for index, status in enumerate(VALID_STATUSES)
 }
 
+_FILENAME_ID_RE = re.compile(r"^([A-Z]+-\d+)-")
+
+_CATEGORY_PREFIX_MAP = {
+    "code_quality": "CODE",
+    "security": "SEC",
+    "performance": "PERF",
+    "documentation": "DOC",
+    "auth": "AUTH",
+}
+
+
+def _category_prefix(category: str) -> str:
+    """Derive the uppercase letter prefix used in ticket IDs from a category."""
+
+    if category in _CATEGORY_PREFIX_MAP:
+        return _CATEGORY_PREFIX_MAP[category]
+    cleaned = re.sub(r"[^A-Z]", "", category.upper())
+    return cleaned or "T"
+
+
+def _id_from_stem(stem: str) -> str | None:
+    """Extract the 'PREFIX-N' ID from a ticket file stem if present."""
+
+    match = _FILENAME_ID_RE.match(stem)
+    return match.group(1) if match else None
+
 
 class TicketStore:
     """Persist tickets as markdown files with YAML-like frontmatter."""
 
-    def __init__(self, base_dir: Path, *, agent_id: str | None = None) -> None:
+    def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
-        self._agent_id = agent_id
         self._last_list_errors: list[ErrorDetail] = []
 
     @staticmethod
@@ -100,7 +125,6 @@ class TicketStore:
             "ts": utc_now().isoformat(),
             "action": action,
             "ticket_id": ticket_id,
-            "agent": self._agent_id,
         }
         if fields:
             entry["fields"] = fields
@@ -127,7 +151,7 @@ class TicketStore:
         title: str,
         repo: str,
         owner: str | None,
-        category: Category,
+        category: str,
         severity: Severity,
         status: Status,
         description: str | None,
@@ -136,6 +160,7 @@ class TicketStore:
         tags: list[str],
         slug: str,
         due_date: date | None = None,
+        start_date: date | None = None,
     ) -> Ticket:
         """Create a ticket with locked, atomic ID allocation.
 
@@ -144,6 +169,9 @@ class TicketStore:
         with self._with_lock():
             ticket_id = self._next_id(category)
             now = utc_now()
+            if due_date is None:
+                from datetime import timedelta
+                due_date = (now + timedelta(days=1)).date()
             ticket = Ticket(
                 id=ticket_id,
                 title=title,
@@ -159,10 +187,9 @@ class TicketStore:
                 created_at=now,
                 updated_at=now,
                 slug=slug,
-                agent_id=self._agent_id,
-                created_by=self._agent_id,
                 version=1,
                 due_date=due_date,
+                start_date=start_date,
             )
             self._write_ticket(ticket, ticket_path(self.base_dir, ticket))
             self._log_activity("created", ticket.id)
@@ -244,7 +271,6 @@ class TicketStore:
                 data["slug"] = slugify(str(update_data["title"]))
             data["updated_at"] = utc_now()
             data["version"] = current.version + 1
-            data["agent_id"] = self._agent_id
 
             updated_ticket = Ticket(**data)
             new_path = ticket_path(self.base_dir, updated_ticket)
@@ -319,28 +345,30 @@ class TicketStore:
         except OSError as exc:
             raise TicketDeleteError(ticket_id, str(exc)) from exc
 
-    def _next_id(self, category: Category) -> str:
-        prefix = CATEGORY_PREFIXES[category]
+    def _next_id(self, category: str) -> str:
+        prefix = _category_prefix(category)
         highest = 0
         if not self.base_dir.exists():
-            return f"{prefix}1"
+            return f"{prefix}-1"
 
         for path in self._iter_ticket_paths(include_trash=True):
-            stem_prefix = path.stem.split("-", 1)[0].upper()
-            if not stem_prefix.startswith(prefix):
+            extracted = _id_from_stem(path.stem.upper())
+            if extracted is None:
                 continue
-            suffix = stem_prefix[len(prefix) :]
-            if suffix.isdigit():
-                highest = max(highest, int(suffix))
-        return f"{prefix}{highest + 1}"
+            id_prefix, _, id_number = extracted.partition("-")
+            if id_prefix != prefix:
+                continue
+            if id_number.isdigit():
+                highest = max(highest, int(id_number))
+        return f"{prefix}-{highest + 1}"
 
     def _find_ticket_path(self, ticket_id: str) -> tuple[Ticket, Path]:
         # Linear scan over all .md files — O(n) where n = number of tickets.
         # Acceptable for local-first use case; consider an ID→path index for scale.
         normalized = ticket_id.upper()
         for path in self._iter_ticket_paths():
-            stem_prefix = path.stem.split("-", 1)[0].upper()
-            if stem_prefix == normalized:
+            extracted = _id_from_stem(path.stem.upper())
+            if extracted == normalized:
                 ticket = self._read_ticket(path, ticket_id=normalized)
                 return ticket, path
         raise TicketNotFoundError(ticket_id)
@@ -348,8 +376,8 @@ class TicketStore:
     def _find_trashed_ticket_path(self, ticket_id: str) -> tuple[Ticket, Path]:
         normalized = ticket_id.upper()
         for path in self._iter_ticket_paths(include_trash=True, trash_only=True):
-            stem_prefix = path.stem.split("-", 1)[0].upper()
-            if stem_prefix == normalized:
+            extracted = _id_from_stem(path.stem.upper())
+            if extracted == normalized:
                 ticket = self._read_ticket(path, ticket_id=normalized)
                 return ticket, path
         raise TicketNotFoundError(ticket_id)
@@ -406,6 +434,9 @@ class TicketStore:
         due_date_value = data.get("due_date")
         if due_date_value is not None:
             data["due_date"] = date.fromisoformat(str(due_date_value))
+        start_date_value = data.get("start_date")
+        if start_date_value is not None:
+            data["start_date"] = date.fromisoformat(str(start_date_value))
 
         return data
 
@@ -454,7 +485,7 @@ class TicketStore:
             "id": ticket.id,
             "title": ticket.title,
             "repo": ticket.repo,
-            "category": ticket.category.value,
+            "category": ticket.category,
             "severity": ticket.severity.value,
             "status": ticket.status.value,
             "owner": ticket.owner,
@@ -463,15 +494,16 @@ class TicketStore:
             "updated_at": isoformat_z(ticket.updated_at),
             "tags": ticket.tags,
             "version": ticket.version,
+            "schema_version": ticket.schema_version,
         }
-        if ticket.agent_id:
-            frontmatter["agent_id"] = ticket.agent_id
-        if ticket.created_by:
-            frontmatter["created_by"] = ticket.created_by
-        if ticket.assignee:
-            frontmatter["assignee"] = ticket.assignee
         if ticket.due_date:
             frontmatter["due_date"] = ticket.due_date.isoformat()
+        if ticket.start_date:
+            frontmatter["start_date"] = ticket.start_date.isoformat()
+        if ticket.kanban_task_ids:
+            frontmatter["kanban_task_ids"] = ticket.kanban_task_ids
+        if ticket.checks:
+            frontmatter["checks"] = ticket.checks
         lines = ["---", yaml.safe_dump(frontmatter, sort_keys=False).strip(), "---", ""]
         lines.append(DESCRIPTION_DELIMITER)
         if ticket.description:
@@ -529,14 +561,20 @@ class TicketStore:
             return False
         if filters.owner and ticket.owner != filters.owner:
             return False
-        if filters.assignee is not None and ticket.assignee != filters.assignee:
-            return False
         if filters.due_after is not None and (
             ticket.due_date is None or ticket.due_date < filters.due_after
         ):
             return False
         if filters.due_before is not None and (
             ticket.due_date is None or ticket.due_date > filters.due_before
+        ):
+            return False
+        if filters.start_after is not None and (
+            ticket.start_date is None or ticket.start_date < filters.start_after
+        ):
+            return False
+        if filters.start_before is not None and (
+            ticket.start_date is None or ticket.start_date > filters.start_before
         ):
             return False
         return True
@@ -579,7 +617,7 @@ class TicketStore:
 
     @staticmethod
     def _ticket_id_sort_key(ticket: Ticket) -> tuple[str, int]:
-        return (ticket.id[0], int(ticket.id[1:]))
+        return parse_ticket_id(ticket.id)
 
     def _sort_key_for_field(self, field: str) -> Any:
         if field == "severity":
@@ -593,6 +631,11 @@ class TicketStore:
         if field == "due_date":
             return lambda ticket: (
                 ticket.due_date or date.max,
+                self._ticket_id_sort_key(ticket),
+            )
+        if field == "start_date":
+            return lambda ticket: (
+                ticket.start_date or date.max,
                 self._ticket_id_sort_key(ticket),
             )
         if field == "title":

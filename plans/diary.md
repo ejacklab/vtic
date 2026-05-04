@@ -1,5 +1,23 @@
 # Diary
 
+## 2026-04-29 — VTIC Phase 2 due_date
+
+**Goal:** Add optional ticket due dates across VTIC models, storage, CLI, API, migration tooling, and tests.
+**Outcome:** DONE
+
+### What happened
+Implemented `due_date` on ticket create/update/response flows, frontmatter serialization/parsing, due range filters, CLI/API query support, and `due_date` sorting. Added the migration script from the Phase 2 plan and covered model, storage, CLI, and API behavior with tests.
+
+### Decisions
+- Applied the corrected `due_before` expectation: C2 due on 2026-06-15 is excluded by `due_before=2026-06-01`.
+- Left pre-existing untracked `tickets/` content untouched.
+
+### Dead ends
+- none
+
+### State at session end
+Verified with `python -m pytest tests/ -v 2>&1 | tail -40` -> `200 passed in 1.44s`.
+
 ## 2026-03-14 — self-harness bootstrap
 
 **Goal:** Give cclow a lightweight operating harness inside this workspace.
