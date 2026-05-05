@@ -1,0 +1,16 @@
+# VTIC Fermentation Template — General Brew
+schema_version: "0.2"
+category: fermentation
+severity: low
+status: open
+kanban_task_ids: []
+checks:
+  - day: 3
+    label: "day 3 check"
+    trigger_type: check
+  - day: 7
+    label: "day 7 check"
+    trigger_type: check
+  - day: 14
+    label: "day 14 check — bottle or extend"
+    trigger_type: check

@@ -1,0 +1,13 @@
+# VTIC Fermentation Template — Milk Kefir
+schema_version: "0.2"
+category: fermentation
+severity: low
+status: open
+kanban_task_ids: []
+checks:
+  - day: 1
+    label: "grain check — smell and texture"
+    trigger_type: check
+  - day: 2
+    label: "taste + strain"
+    trigger_type: check

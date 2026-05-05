@@ -1,0 +1,18 @@
+# VTIC Fermentation Template — Kombucha
+# Usage: vtic create --template fermentation/kombucha
+# Fill in: id, title, start_date, due_date, tags
+schema_version: "0.2"
+category: fermentation
+severity: low
+status: open
+kanban_task_ids: []
+checks:
+  - day: 3
+    label: "taste test, check pH"
+    trigger_type: check
+  - day: 7
+    label: "assess carbonation"
+    trigger_type: check
+  - day: 14
+    label: "bottle or extend"
+    trigger_type: check

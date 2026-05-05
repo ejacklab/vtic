@@ -1,0 +1,25 @@
+id: BREW-01
+title: "Kombucha Batch #1 — Gen 3 SCOBY"
+schema_version: "0.2"
+version: 1
+slug: kombucha-batch-1-gen-3-scoby
+repo: ejacklab/fermentation
+category: fermentation
+severity: low
+status: open
+start_date: '2026-05-05'
+due_date: '2026-05-19'
+created_at: '2026-05-05T08:00:00Z'
+updated_at: '2026-05-05T08:00:00Z'
+tags: [kombucha, scoby-gen-3, 2L-jar]
+checks:
+  - day: 3
+    label: "taste test, check pH"
+    trigger_type: check
+  - day: 7
+    label: "assess carbonation"
+    trigger_type: check
+  - day: 14
+    label: "bottle or extend"
+    trigger_type: check
+kanban_task_ids: []
