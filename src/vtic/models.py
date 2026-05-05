@@ -258,6 +258,7 @@ class TicketUpdate(VticBaseModel):
         description="Expected current version for optimistic concurrency check")
     due_date: date | None = Field(default=None, description="Optional due date (null clears it)")
     start_date: date | None = Field(default=None, description="Planned start date (null clears it)")
+    kanban_task_ids: list[str] | None = Field(default=None, description="Kanban task IDs linked to this ticket")
 
     model_config = ConfigDict(
         populate_by_name=True,
