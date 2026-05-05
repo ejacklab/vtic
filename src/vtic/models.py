@@ -45,6 +45,13 @@ class VticBaseModel(BaseModel):
     )
 
 
+class CheckItem(VticBaseModel):
+    """A scheduled check point for a ticket."""
+    day: int = Field(..., description="Days after start_date to fire")
+    label: str = Field(..., max_length=200, description="Human description, e.g. 'taste test'")
+    trigger_type: str = Field(default="check", max_length=50)
+
+
 class Ticket(VticBaseModel):
     """Core ticket entity representing a single issue or task."""
 
@@ -93,8 +100,7 @@ class Ticket(VticBaseModel):
     schema_version: str = Field(default="v0.2", max_length=20, description="Schema version")
     kanban_task_ids: list[str] = Field(default_factory=list,
         description="Linked Hermes Kanban task IDs")
-    checks: list[dict] = Field(default_factory=list,
-        description="Scheduled check events [{day_offset: int, label: str}]")
+    checks: list[CheckItem] = Field(default_factory=list, description="Scheduled check points")
 
     @field_validator("id", mode="before")
     @classmethod
@@ -205,6 +211,7 @@ class TicketCreate(VticBaseModel):
     tags: list[str] = Field(default_factory=list, description="Searchable tags (max 50 items)")
     due_date: date | None = Field(default=None, description="Optional due date")
     start_date: date | None = Field(default=None, description="Planned start date")
+    checks: list[CheckItem] = Field(default_factory=list, description="Scheduled check points")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -319,7 +326,7 @@ class TicketResponse(VticBaseModel):
     start_date: str | None = None
     schema_version: str = "v0.2"
     kanban_task_ids: list[str] = Field(default_factory=list)
-    checks: list[dict] = Field(default_factory=list)
+    checks: list[CheckItem] = Field(default_factory=list)
 
     @classmethod
     def from_ticket(cls, ticket: Ticket) -> "TicketResponse":

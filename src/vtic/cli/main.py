@@ -469,6 +469,77 @@ def restore(
         _exit_with_error(exc)
 
 
+@app.command()
+def migrate(
+    dir: Path | None = typer.Option(None, "--dir", help="Tickets directory"),
+) -> None:
+    """Migrate ticket YAML files to schema v0.2 (maps legacy status values, strips dead fields, adds schema_version)."""
+
+    import yaml  # noqa: PLC0415
+
+    LEGACY_STATUS_MAP = {
+        "in_progress": "active",
+        "blocked": "active",
+        "fixed": "done",
+        "wont_fix": "cancelled",
+        "closed": "done",
+    }
+    DEAD_FIELDS = {"agent_id", "created_by", "assignee"}
+
+    store = _resolve_store(dir)
+    md_files = list(store.base_dir.rglob("*.md"))
+    migrated = 0
+
+    for path in md_files:
+        try:
+            raw = path.read_text(encoding="utf-8")
+            normalized = raw.replace("\r\n", "\n")
+            if not normalized.startswith("---\n"):
+                continue
+            closing = "\n---\n"
+            end_idx = normalized.find(closing, 4)
+            if end_idx == -1:
+                continue
+            frontmatter_str = normalized[4:end_idx]
+            body = normalized[end_idx + len(closing):]
+            data = yaml.safe_load(frontmatter_str) or {}
+            if not isinstance(data, dict):
+                continue
+
+            changed = False
+
+            # Map legacy status values
+            status_val = data.get("status", "")
+            if status_val in LEGACY_STATUS_MAP:
+                data["status"] = LEGACY_STATUS_MAP[status_val]
+                changed = True
+
+            # Strip dead fields
+            for field in DEAD_FIELDS:
+                if field in data:
+                    del data[field]
+                    changed = True
+
+            # Add schema_version if missing
+            if "schema_version" not in data:
+                data["schema_version"] = "0.2"
+                changed = True
+
+            if changed:
+                new_frontmatter = yaml.safe_dump(data, sort_keys=False).strip()
+                new_content = f"---\n{new_frontmatter}\n---\n{body}"
+                path.write_text(new_content, encoding="utf-8")
+                migrated += 1
+
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[yellow]Skipped {path}: {exc}[/yellow]")
+
+    if migrated:
+        console.print(f"[green]Migrated {migrated} tickets[/green]")
+    else:
+        console.print("Nothing to migrate")
+
+
 @app.callback()
 def main() -> None:
     """vtic CLI."""

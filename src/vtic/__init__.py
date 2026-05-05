@@ -10,13 +10,14 @@ def __getattr__(name: str):
         from .config import VticConfig
 
         return VticConfig
-    if name in {"Ticket", "TicketCreate", "TicketUpdate"}:
-        from .models import Ticket, TicketCreate, TicketUpdate
+    if name in {"Ticket", "TicketCreate", "TicketUpdate", "CheckItem"}:
+        from .models import Ticket, TicketCreate, TicketUpdate, CheckItem
 
         return {
             "Ticket": Ticket,
             "TicketCreate": TicketCreate,
             "TicketUpdate": TicketUpdate,
+            "CheckItem": CheckItem,
         }[name]
     if name == "TicketStore":
         from .storage import TicketStore
@@ -32,4 +33,5 @@ __all__ = [
     "TicketUpdate",
     "VticConfig",
     "TicketStore",
+    "CheckItem",
 ]
